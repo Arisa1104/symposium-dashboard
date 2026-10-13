@@ -76,7 +76,7 @@ function initArticleFormatterController() {
   const fileInput = document.getElementById("art-file-input") as HTMLInputElement;
   const fileNameDisplay = document.getElementById("art-file-name") as HTMLElement;
   const btnConvert = document.getElementById("btn-convert-article") as HTMLButtonElement;
-  const previewContainer = document.getElementById("art-preview-container") as HTMLElement;
+  const previewContainer = document.getElementById("art-preview-content") as HTMLElement;
   const codeContainer = document.getElementById("art-code-container") as HTMLTextAreaElement;
   const statusBadge = document.getElementById("art-status-badge") as HTMLElement;
 
@@ -133,19 +133,22 @@ function initArticleFormatterController() {
     }
   });
 
+  const previewWrapper = document.getElementById("art-preview-wrapper") as HTMLElement;
+
   btnViewPreview?.addEventListener("click", () => {
     btnViewPreview.classList.add("active");
     btnViewCode.classList.remove("active");
-    previewContainer.style.display = "block";
+    if (previewWrapper) previewWrapper.style.display = "block";
     codeContainer.style.display = "none";
   });
 
   btnViewCode?.addEventListener("click", () => {
     btnViewCode.classList.add("active");
     btnViewPreview.classList.remove("active");
-    previewContainer.style.display = "none";
+    if (previewWrapper) previewWrapper.style.display = "none";
     codeContainer.style.display = "block";
   });
+
 
   btnConvert?.addEventListener("click", async () => {
     if (!currentFile) {
@@ -209,7 +212,7 @@ function initReferenceFormatterController() {
   const refInput = document.getElementById("ref-input") as HTMLTextAreaElement;
   const btnFormat = document.getElementById("btn-format-refs") as HTMLButtonElement;
   const btnLoadSample = document.getElementById("btn-load-sample-ref") as HTMLButtonElement;
-  const previewContainer = document.getElementById("ref-preview-container") as HTMLElement;
+  const previewContainer = document.getElementById("ref-preview-content") as HTMLElement;
   const codeContainer = document.getElementById("ref-code-container") as HTMLTextAreaElement;
   const btnCopyHtml = document.getElementById("btn-copy-ref-html") as HTMLButtonElement;
 
@@ -218,19 +221,22 @@ function initReferenceFormatterController() {
 
   let formattedHtml = "";
 
+  const previewWrapper = document.getElementById("ref-preview-wrapper") as HTMLElement;
+
   btnViewPreview?.addEventListener("click", () => {
     btnViewPreview.classList.add("active");
     btnViewCode.classList.remove("active");
-    previewContainer.style.display = "block";
+    if (previewWrapper) previewWrapper.style.display = "block";
     codeContainer.style.display = "none";
   });
 
   btnViewCode?.addEventListener("click", () => {
     btnViewCode.classList.add("active");
     btnViewPreview.classList.remove("active");
-    previewContainer.style.display = "none";
+    if (previewWrapper) previewWrapper.style.display = "none";
     codeContainer.style.display = "block";
   });
+
 
   btnLoadSample?.addEventListener("click", () => {
     refInput.value = `1. Adams, J. (2020). Performance practice in contemporary brass literature. Journal of Music Research, 45(2), 112–128. https://doi.org/10.1080/01411896.2020.1234567
