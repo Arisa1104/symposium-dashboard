@@ -69,12 +69,19 @@ const elements = {
 
 // --- INITIALIZATION ---
 export function initTableFormatter() {
-  initTableEventListeners();
-  // theme handled globally
+  initEventListeners();
+  initTheme();
 }
 
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initTableFormatter);
+} else {
+  initTableFormatter();
+}
+
+
 // --- EVENT LISTENERS ---
-function initTableEventListeners() {
+function initEventListeners() {
   // File Upload Handlers
   elements.docxDropzone.addEventListener("click", () => elements.docxFileInput.click());
   elements.docxFileInput.addEventListener("change", handleFileSelect);
