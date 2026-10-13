@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Symposium Editorial Suite — College Music Symposium</title>
+  
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="Unified editorial workbench for the College Music Symposium: table formatter, article body converter, editorial board cleaner, reference formatter, and italic highlighter.">
+  <meta name="theme-color" content="#585852">
+  
+  <link rel="stylesheet" href="/src/styles/table-formatter.css">
+  <link rel="stylesheet" href="/src/styles/dashboard.css">
+  
+  <!-- Mammoth.js for client-side Word table extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="brand-logo">S</div>
+        <div class="brand-info">
+          <h1>Symposium Editorial Suite</h1>
+          <p>College Music Symposium Editorial & Publishing Tools</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-theme-toggle" class="btn" aria-label="Toggle theme">
+          <svg class="theme-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+          </svg>
+          <svg class="theme-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2"/><path d="M12 20v2"/>
+            <path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
+            <path d="M2 12h2"/><path d="M20 12h2"/>
+            <path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- UNIFIED TOOL SELECTOR NAVIGATION -->
+    <nav class="tool-nav-bar" aria-label="Tool Switcher">
+      <button class="tool-nav-btn active" data-tool="table-formatter">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
+          <path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48ZM32,64H88V104H32ZM88,120v32H32V120Zm0,48v24H32V168Zm64,24H104V168h48Zm0-40H104V120h48Zm0-48H104V64h48Zm72,88H168V168h56Zm0-40H168V120h56Zm0-48H168V64h56Z"></path>
+        </svg>
+        Table Formatter
+      </button>
+
+      <button class="tool-nav-btn" data-tool="article-formatter">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
+          <path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H216v32H40ZM216,200H40V104H216v96Zm-120-64H56a8,8,0,0,1,0-16H96a8,8,0,0,1,0,16Zm104,0H128a8,8,0,0,1,0-16h72a8,8,0,0,1,0,16Zm-104,32H56a8,8,0,0,1,0-16H96a8,8,0,0,1,0,16Zm104,0H128a8,8,0,0,1,0-16h72a8,8,0,0,1,0,16Z"></path>
+        </svg>
+        Article Formatter
+      </button>
+
+      <button class="tool-nav-btn" data-tool="reference-formatter">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
+          <path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm-96,144H32V64h96Zm96,0H144V64h80Z"></path>
+        </svg>
+        Reference Formatter
+      </button>
+
+      <button class="tool-nav-btn" data-tool="editorial-board">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
+          <path d="M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.37a8,8,0,0,1-11.07-2.33,79.83,79.83,0,0,0-53.54-36.88,8,8,0,0,1,6.08-14.79,95.8,95.8,0,0,1,60.86,42.93A8,8,0,0,1,250.14,206.37ZM168,144a43.91,43.91,0,0,0,23.47-6.75,8,8,0,1,0-8.54-13.52A28,28,0,1,1,148,84a8,8,0,0,0,0-16,44,44,0,0,0,20,76Z"></path>
+        </svg>
+        Editorial Board Formatter
+      </button>
+
+      <button class="tool-nav-btn" data-tool="italic-highlighter">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256">
+          <path d="M213.66,82.34l-56-56a8,8,0,0,0-11.32,0l-112,112a8,8,0,0,0-2.34,5.66v56a8,8,0,0,0,8,8h56a8,8,0,0,0,5.66-2.34l112-112A8,8,0,0,0,213.66,82.34ZM88.69,192H48V151.31l72-72,40.69,40.69Zm83.31-83.31L131.31,68l24-24L196,84.69Z"></path>
+        </svg>
+        Italic Highlighter
+      </button>
+    </nav>
+
+    <!-- 1. TOOL VIEW: TABLE FORMATTER -->
+    <div id="view-table-formatter" class="tool-view active">
+      <main class="workspace-grid">
+        <!-- LEFT COLUMN: INPUTS & INTERACTIVE EDITOR -->
+        <section class="glass-panel" id="panel-input">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256">
+                <path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM40,56H216v32H40ZM216,200H40V104H216v96Zm-120-64H56a8,8,0,0,1,0-16H96a8,8,0,0,1,0,16Zm104,0H128a8,8,0,0,1,0-16h72a8,8,0,0,1,0,16Zm-104,32H56a8,8,0,0,1,0-16H96a8,8,0,0,1,0,16Zm104,0H128a8,8,0,0,1,0-16h72a8,8,0,0,1,0,16Z"></path>
+              </svg>
+              Table Input & Options
+            </h2>
+            <div class="panel-controls">
+              <button id="btn-load-sample" class="btn btn-secondary" title="Load sample Word table from workspace">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256">
+                  <path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM152,44l44,44H152ZM200,216H56V40h80V96a8,8,0,0,0,8,8h56V216Z"></path>
+                </svg>
+                Load Sample DOCX
+              </button>
+            </div>
+          </div>
+
+          <!-- Upload Dropzone & Paste Tabs -->
+          <div class="input-methods">
+            <div class="dropzone" id="docx-dropzone">
+              <input type="file" id="docx-file-input" accept=".docx" style="display: none;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 256 256">
+                <path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM152,44l44,44H152ZM200,216H56V40h80V96a8,8,0,0,0,8,8h56V216Z"></path>
+              </svg>
+              <div class="dropzone-text">
+                <strong>Click to upload</strong> or drag and drop Word (.docx)
+              </div>
+              <span class="dropzone-hint">Tables will be automatically extracted</span>
+            </div>
+
+            <div class="dropzone-or">or paste raw / HTML snippet</div>
+
+            <div class="paste-zone" id="paste-dropzone">
+              <textarea id="input-raw-html" placeholder="Paste table markup or clipboard HTML here... (Ctrl+V / Cmd+V)"></textarea>
+            </div>
+          </div>
+
+          <!-- Configuration Controls -->
+          <div class="controls-section">
+            <div class="control-group-title">Table Semantics & Header Detection</div>
+            <div class="checkbox-grid">
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-first-row-header" checked>
+                <span>Format first row as Header (&lt;th&gt;)</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-first-col-header">
+                <span>Format first column as Header (&lt;th&gt;)</span>
+              </label>
+            </div>
+
+            <div class="control-group-title" style="margin-top: 1rem;">Content Sanitization</div>
+            <div class="checkbox-grid">
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-strip-attributes" checked>
+                <span>Strip inline style/width attributes</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-remove-empty" checked>
+                <span>Remove empty rows / empty paragraphs</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-keep-styles" checked>
+                <span>Preserve inline bold/italic (&lt;strong&gt;, &lt;em&gt;)</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-keep-links" checked>
+                <span>Preserve hyperlinks (&lt;a href&gt;)</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-smart-paragraphs" checked>
+                <span>Smart paragraph unwrapping in cells</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Interactive Grid Editor -->
+          <div class="interactive-editor-section">
+            <div class="panel-header" style="margin-bottom: 0.5rem;">
+              <h3 class="panel-title" style="font-size: 0.95rem;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+                  <path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"></path>
+                </svg>
+                Cell Editor & Structure Adjuster
+              </h3>
+              <div class="grid-actions">
+                <button id="grid-add-row" class="btn btn-sm" title="Add Row Below">+ Row</button>
+                <button id="grid-add-column" class="btn btn-sm" title="Add Column Right">+ Col</button>
+                <button id="grid-merge" class="btn btn-sm" title="Merge selected cells (select across row/col)">Merge</button>
+                <button id="grid-split" class="btn btn-sm" title="Split merged cell back to normal cells">Split</button>
+                <button id="grid-clear" class="btn btn-sm btn-danger" title="Clear Grid">Clear</button>
+              </div>
+            </div>
+
+            <div class="editor-loading" id="editor-loading" style="display: none;">
+              <div class="spinner"></div>
+              <span>Processing Word Table...</span>
+            </div>
+
+            <div class="grid-scroll-container">
+              <div class="grid-wrapper" id="grid-wrapper">
+                <div class="empty-state">Upload a Word document or paste table HTML above to begin editing.</div>
+              </div>
+            </div>
+            <div class="grid-hint">
+              <span>Tip: Click any cell to edit text directly. Click &amp; drag across cells to select a range to Merge.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT COLUMN: PREVIEWS & CODE EXPORTS -->
+        <section class="glass-panel" id="panel-output">
+          <div class="panel-header">
+            <div class="tabs-nav" role="tablist">
+              <button class="tab-btn active" data-tab="tab-styled-preview" role="tab" aria-selected="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+                  <path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.44,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,44,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"></path>
+                </svg>
+                Symposium Preview
+              </button>
+              <button class="tab-btn" data-tab="tab-cleaned-code" role="tab" aria-selected="false">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+                  <path d="M69.66,152a8,8,0,0,1-1.32,11.24l-40,32a8,8,0,0,1-10-12.48l40-32A8,8,0,0,1,69.66,152Zm-40-59.52,40-32A8,8,0,0,0,58.34,48l-40,32a8,8,0,0,0,11.32,12.48Zm198,15.52-40-32a8,8,0,1,0-10,12.48l40,32a8,8,0,0,0,10-12.48Zm-40,44a8,8,0,0,0-1.32,11.24l40,32a8,8,0,0,0,10-12.48l-40-32A8,8,0,0,0,187.66,152ZM163.46,33.24a8,8,0,0,0-10.22,5.22l-64,176a8,8,0,0,0,5.22,10.22A8.44,8.44,0,0,0,96,225a8,8,0,0,0,7.74-5.24l64-176A8,8,0,0,0,163.46,33.24Z"></path>
+                </svg>
+                Clean HTML
+              </button>
+              <button class="tab-btn" data-tab="tab-raw-diagnostic" role="tab" aria-selected="false">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+                  <path d="M208,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM184,184H72a8,8,0,0,1,0-16H184a8,8,0,0,1,0,16Zm0-40H72a8,8,0,0,1,0-16H184a8,8,0,0,1,0,16Zm0-40H72a8,8,0,0,1,0-16H184a8,8,0,0,1,0,16Z"></path>
+                </svg>
+                Raw Diagnostic
+              </button>
+            </div>
+          </div>
+
+          <div class="tab-content">
+            <!-- Symposium Styled Preview Tab -->
+            <div class="tab-pane active" id="tab-styled-preview">
+              <div class="preview-stage-container">
+                <div class="symposium-article-context" id="symposium-preview-content">
+                  <p class="empty-state">No table generated yet.</p>
+                </div>
+              </div>
+              <div class="preview-actions">
+                <button id="btn-copy-styled" class="btn btn-secondary" title="Copy rendered table formatted for rich-text editors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256">
+                    <path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"></path>
+                  </svg>
+                  Copy Rich Table
+                </button>
+                <button id="btn-copy-css" class="btn btn-secondary" title="Copy standalone table styling rules for Joomla CSS">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256">
+                    <path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM152,44l44,44H152ZM200,216H56V40h80V96a8,8,0,0,0,8,8h56V216Z"></path>
+                  </svg>
+                  Copy Joomla CSS
+                </button>
+              </div>
+            </div>
+
+            <!-- Clean HTML Output Tab -->
+            <div class="tab-pane" id="tab-cleaned-code">
+              <div class="code-output-container">
+                <div class="code-output-header">
+                  <span>table_joomla_clean.html</span>
+                  <span>Ready for CMS Paste</span>
+                </div>
+                <textarea class="code-output-view" id="cleaned-html-output" readonly placeholder="Semantic cleaned HTML will appear here..."></textarea>
+              </div>
+              <div class="preview-actions">
+                <button id="btn-copy-html" class="btn btn-primary" style="flex-grow: 1;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256">
+                    <path d="M200,32H163.74a47.92,47.92,0,0,0-71.48,0H56a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V48a16,16,0,0,0-16-16ZM128,24a32,32,0,0,1,32,32H96a32,32,0,0,1,32-32Zm72,184H56V48H80V64a8,8,0,0,0,8,8h80a8,8,0,0,0,8-8V48h24V208Z"></path>
+                  </svg>
+                  Copy HTML Code
+                </button>
+                <button id="btn-download-html" class="btn">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256">
+                    <path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66-8.34a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,112.69V40a8,8,0,0,0-16,0v72.69L93.66,84.34A8,8,0,0,0,82.34,95.66Z"></path>
+                  </svg>
+                  Download .html
+                </button>
+              </div>
+            </div>
+
+            <!-- Original Raw Diagnostic Tab -->
+            <div class="tab-pane" id="tab-raw-diagnostic">
+              <div class="code-output-container">
+                <div class="code-output-header">
+                  <span>original_source.html</span>
+                  <span>Bloated Word Markup View</span>
+                </div>
+                <textarea class="code-output-view" id="original-html-diagnostic" readonly placeholder="Pasted raw Word markup will be shown here for validation..."></textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- 2. TOOL VIEW: ARTICLE FORMATTER -->
+    <div id="view-article-formatter" class="tool-view">
+      <div class="tool-header-desc">
+        <h2>Symposium Article Formatter</h2>
+        <p>Converts Word (.docx) article manuscripts into clean, Joomla-ready CMS HTML with footnote tooltips, numbered lists, and auto-formatted references.</p>
+      </div>
+      
+      <div class="tool-grid">
+        <!-- Input & Options -->
+        <div class="card">
+          <div class="card-title">
+            <span>Manuscript Input & Settings</span>
+            <span class="stats-badge" id="art-status-badge">Ready</span>
+          </div>
+
+          <div class="file-dropzone-large" id="art-dropzone">
+            <input type="file" id="art-file-input" accept=".docx" style="display: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="currentColor" viewBox="0 0 256 256">
+              <path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM152,44l44,44H152ZM200,216H56V40h80V96a8,8,0,0,0,8,8h56V216Z"></path>
+            </svg>
+            <h4>Select or Drop Article .docx</h4>
+            <p id="art-file-name">Direct in-browser OOXML processing without server uploads</p>
+          </div>
+
+          <div class="controls-section" style="margin-top: 1.25rem;">
+            <div class="control-group-title">Conversion Options</div>
+            <div class="checkbox-grid">
+              <label class="checkbox-label">
+                <input type="checkbox" id="art-opt-references" checked>
+                <span>Format References Section</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="art-opt-footnotes" checked>
+                <span>Process Footnote Tooltips & Backlinks</span>
+              </label>
+            </div>
+            
+            <div style="margin-top: 0.75rem;">
+              <label style="font-size: 0.85rem; font-weight: 500; display: block; margin-bottom: 0.35rem;">
+                Skip leading non-empty paragraphs:
+              </label>
+              <input type="number" id="art-opt-skip" min="0" max="10" value="0" style="padding: 0.4rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); width: 80px; font-family: var(--font-mono);">
+              <span style="font-size: 0.75rem; color: var(--text-tertiary); margin-left: 0.5rem;">(e.g., skip 2 if doc starts with Title + Author)</span>
+            </div>
+
+            <div style="margin-top: 0.75rem;">
+              <label style="font-size: 0.85rem; font-weight: 500; display: block; margin-bottom: 0.35rem;">
+                Force H3 Headings (one per line, optional):
+              </label>
+              <textarea id="art-opt-h3" class="text-area-custom" style="min-height: 70px; height: 70px;" placeholder="Participant Recruitment&#10;Data Analysis"></textarea>
+            </div>
+          </div>
+
+          <button id="btn-convert-article" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">
+            Convert Article to Joomla HTML
+          </button>
+        </div>
+
+        <!-- Output & Preview -->
+        <div class="card">
+          <div class="card-title">
+            <span>Generated HTML & Preview</span>
+            <div style="display: flex; gap: 0.5rem;">
+              <button id="btn-copy-art-html" class="btn btn-sm btn-primary">Copy HTML</button>
+              <button id="btn-download-art-html" class="btn btn-sm">Download</button>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <button class="btn btn-sm active" id="btn-art-view-preview">Live Preview</button>
+            <button class="btn btn-sm" id="btn-art-view-code">HTML Source</button>
+          </div>
+
+          <div id="art-preview-container" class="preview-box">
+            <p class="empty-state">Upload and convert an article to see live preview here.</p>
+          </div>
+          <textarea id="art-code-container" class="code-output-view" style="display: none; height: 380px;" readonly placeholder="HTML code will appear here..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. TOOL VIEW: REFERENCE FORMATTER -->
+    <div id="view-reference-formatter" class="tool-view">
+      <div class="tool-header-desc">
+        <h2>Reference Formatter</h2>
+        <p>Parses raw or messy citation entries into semantic College Music Symposium hanging-indent list items with active DOI links.</p>
+      </div>
+
+      <div class="tool-grid">
+        <div class="card">
+          <div class="card-title">
+            <span>Input References (Raw Text or HTML)</span>
+            <button id="btn-load-sample-ref" class="btn btn-sm btn-secondary">Load Sample</button>
+          </div>
+          <textarea id="ref-input" class="text-area-custom" placeholder="Paste references here... Example:
+1. Adams, J. (2020). Performance practice in contemporary brass literature. Journal of Music Research, 45(2), 112–128. https://doi.org/10.1080/01411896.2020.1234567
+
+Smith, E. R. (2018). Analytical perspectives. Music Theory Spectrum, 22, 45–60."></textarea>
+          
+          <button id="btn-format-refs" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">
+            Format References
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Formatted References</span>
+            <div style="display: flex; gap: 0.5rem;">
+              <button id="btn-copy-ref-html" class="btn btn-sm btn-primary">Copy HTML</button>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <button class="btn btn-sm active" id="btn-ref-view-preview">Live Preview</button>
+            <button class="btn btn-sm" id="btn-ref-view-code">HTML Source</button>
+          </div>
+
+          <div id="ref-preview-container" class="preview-box">
+            <p class="empty-state">Formatted reference list will render here.</p>
+          </div>
+          <textarea id="ref-code-container" class="code-output-view" style="display: none; height: 300px;" readonly placeholder="Formatted <ol class=&quot;references&quot;> HTML will appear here..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. TOOL VIEW: EDITORIAL BOARD FORMATTER -->
+    <div id="view-editorial-board" class="tool-view">
+      <div class="tool-header-desc">
+        <h2>Editorial Board Formatter</h2>
+        <p>Converts raw website copy into an alphabetized list sorted by last name, in "First Last, University" format.</p>
+      </div>
+
+      <div class="tool-grid">
+        <div class="card">
+          <div class="card-title">
+            <span>Raw Website Copy</span>
+            <button id="btn-load-sample-board" class="btn btn-sm btn-secondary">Load Sample CMS Roster</button>
+          </div>
+          <textarea id="board-input" class="text-area-custom" placeholder="Paste raw editorial board text from the CMS website here..."></textarea>
+          
+          <div style="display: flex; gap: 1rem; margin-top: 1rem; align-items: center;">
+            <label class="checkbox-label">
+              <input type="radio" name="board-format-type" value="text" checked>
+              <span>Plain Text (First Last, University)</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="radio" name="board-format-type" value="html">
+              <span>HTML List (&lt;ul&gt;&lt;li&gt;&lt;strong&gt;)</span>
+            </label>
+          </div>
+
+          <button id="btn-format-board" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">
+            Sort &amp; Format Roster
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Alphabetized Editorial Board</span>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span id="board-count-badge" class="stats-badge">0 members</span>
+              <button id="btn-copy-board" class="btn btn-sm btn-primary">Copy Output</button>
+            </div>
+          </div>
+          <textarea id="board-output" class="text-area-custom" style="min-height: 320px;" readonly placeholder="Formatted list will appear here..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. TOOL VIEW: ITALIC HIGHLIGHTER -->
+    <div id="view-italic-highlighter" class="tool-view">
+      <div class="tool-header-desc">
+        <h2>Italic Highlighter</h2>
+        <p>Inspects a Word document (.docx), detects all italicized runs (in body text, tables, and footnotes), and highlights them in yellow for editorial proofreading.</p>
+      </div>
+
+      <div class="tool-grid">
+        <div class="card">
+          <div class="card-title">
+            <span>Word Document (.docx) Input</span>
+          </div>
+
+          <div class="file-dropzone-large" id="italic-dropzone">
+            <input type="file" id="italic-file-input" accept=".docx" style="display: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="currentColor" viewBox="0 0 256 256">
+              <path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM152,44l44,44H152ZM200,216H56V40h80V96a8,8,0,0,0,8,8h56V216Z"></path>
+            </svg>
+            <h4>Select or Drop .docx File</h4>
+            <p id="italic-file-name">All italics will be highlighted in yellow</p>
+          </div>
+
+          <button id="btn-process-italics" class="btn btn-primary" style="margin-top: 1.25rem; width: 100%;" disabled>
+            Highlight Italics &amp; Generate Download
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>Processing Results</span>
+          </div>
+
+          <div id="italic-results-box" class="preview-box" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 1rem;">
+            <p class="empty-state">Upload a .docx file and click Process to highlight italics.</p>
+          </div>
+
+          <button id="btn-download-highlighted-docx" class="btn btn-primary" style="margin-top: 1rem; width: 100%; display: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256">
+              <path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66-8.34a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,112.69V40a8,8,0,0,0-16,0v72.69L93.66,84.34A8,8,0,0,0,82.34,95.66Z"></path>
+            </svg>
+            Download Highlighted .docx
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="app-footer" style="margin-top: 2rem;">
+      <p>© 2026 <a href="https://symposium.music.org" target="_blank" rel="noopener">College Music Symposium</a>. Unified editorial suite for publication workflow optimization.</p>
+    </footer>
+    
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div class="toast" id="app-toast">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256">
+      <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.34a8,8,0,0,1,11.32,11.32Z"></path>
+    </svg>
+    <span id="toast-message">Copied to clipboard!</span>
+  </div>
+
+  <!-- Main Orchestration Script -->
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

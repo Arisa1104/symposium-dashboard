@@ -1,0 +1,944 @@
+/* ==========================================================================
+   Symposium Table Formatter - Design System & Stylesheet
+   ========================================================================== */
+
+/* Modern Google Fonts Imports */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* Color Palette - Premium Editorial Warm Slate & Ivory Canvas */
+  --bg-app: #f7f6f2;
+  --bg-panel: #ffffff;
+  --bg-panel-frosted: rgba(255, 255, 255, 0.7);
+  --text-primary: #21211f;
+  --text-secondary: #5c5c56;
+  --text-tertiary: #8f8f87;
+  --border-subtle: rgba(229, 229, 227, 0.7);
+  --border-strong: #e5e5e3;
+  --border-focus: #585852;
+  
+  --accent: #585852; /* Symposium original deep olive charcoal */
+  --accent-light: #808078;
+  --accent-bg-hover: rgba(88, 88, 82, 0.06);
+  --success: #2e7d32;
+  --success-bg: rgba(46, 125, 50, 0.08);
+  --error: #c62828;
+  --error-bg: rgba(198, 40, 40, 0.08);
+
+  /* Elevation Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 20px 40px -15px rgba(0, 0, 0, 0.06);
+  --shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(0, 0, 0, 0.02);
+
+  /* Border Radii */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+
+  /* Fonts */
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'Geist Mono', "Courier New", Courier, monospace;
+
+  /* Motion */
+  --transition-smooth: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-tactile: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --spring-physics: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Dark Mode Scheme */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-app: #121211;
+    --bg-panel: #1a1a19;
+    --bg-panel-frosted: rgba(26, 26, 25, 0.85);
+    --text-primary: #f5f5f3;
+    --text-secondary: #b5b5ad;
+    --text-tertiary: #7d7d76;
+    --border-subtle: rgba(45, 45, 43, 0.6);
+    --border-strong: #2d2d2b;
+    --border-focus: #8c8c83;
+    
+    --accent: #8c8c83;
+    --accent-light: #b5b5ad;
+    --accent-bg-hover: rgba(140, 140, 131, 0.1);
+    --success: #66bb6a;
+    --success-bg: rgba(102, 187, 106, 0.1);
+    --error: #ef5350;
+    --error-bg: rgba(239, 83, 80, 0.1);
+    
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 10px 30px -10px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 20px 40px -15px rgba(0, 0, 0, 0.4);
+    --shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* ==========================================================================
+   Base Elements Reset & Styles
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.5;
+  transition: background-color 0.5s ease;
+  overflow-x: hidden;
+}
+
+/* Custom Premium Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: var(--transition-smooth);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-tertiary);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Helper Class: Hide Scrollbars but keep scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ==========================================================================
+   Typography & Typography Utilities
+   ========================================================================== */
+
+h1, h2, h3, h4 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+p {
+  color: var(--text-secondary);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* ==========================================================================
+   Layout Containers
+   ========================================================================== */
+
+.app-container {
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  flex-grow: 1;
+}
+
+/* Header Component */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-logo {
+  background-color: var(--accent);
+  color: #ffffff;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 1.2rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-info h1 {
+  font-size: 1.35rem;
+  color: var(--text-primary);
+}
+
+.brand-info p {
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+/* Main Workspace Grid */
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 2rem;
+  flex-grow: 1;
+  min-height: 0; /* Important for flex-child grid scrollings */
+}
+
+@media (max-width: 1100px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Premium Panel Style (Liquid Glass) */
+.glass-panel {
+  background-color: var(--bg-panel-frosted);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), var(--shadow-inner);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+  overflow: hidden;
+  position: relative;
+  transition: var(--transition-smooth);
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  padding: 1px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.15), rgba(0, 0, 0, 0.03));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Interactive Workspaces / Controls
+   ========================================================================== */
+
+/* Workspace Header */
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.panel-title svg {
+  color: var(--accent);
+  width: 20px;
+  height: 20px;
+}
+
+.badge {
+  background-color: var(--border-strong);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+}
+
+/* Input Workspace & Drag Drop */
+.input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.dropzone-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .dropzone-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 1.5rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  background-color: rgba(255, 255, 255, 0.02);
+  transition: var(--transition-smooth);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.dropzone:hover, .dropzone.dragover {
+  border-color: var(--accent);
+  background-color: var(--accent-bg-hover);
+}
+
+.dropzone svg {
+  width: 32px;
+  height: 32px;
+  color: var(--text-tertiary);
+  transition: var(--transition-smooth);
+}
+
+.dropzone:hover svg {
+  color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.dropzone h3 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.dropzone p {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* Quick Demo Bar */
+.demo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.demo-bar p {
+  color: var(--text-secondary);
+}
+
+.demo-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  transition: var(--transition-tactile);
+}
+
+.demo-btn:hover {
+  background-color: var(--accent-bg-hover);
+  color: var(--text-primary);
+}
+
+/* Paste Textbox Input */
+.raw-html-input {
+  width: 100%;
+  min-height: 120px;
+  max-height: 180px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  transition: var(--transition-smooth);
+}
+
+.raw-html-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(88, 88, 82, 0.1);
+}
+
+/* Options / Settings Bar */
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+  background-color: var(--border-subtle);
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  margin-top: 0.5rem;
+}
+
+.checkbox-control {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-control input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+
+/* ==========================================================================
+   Spreadsheet Table Editor Layout
+   ========================================================================== */
+
+.editor-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex-grow: 1;
+  min-height: 350px;
+  max-height: 550px;
+  overflow: hidden;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Buttons */
+.btn {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.8rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: var(--transition-tactile);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:hover {
+  background-color: var(--border-subtle);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background-color: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-light);
+  border-color: var(--accent-light);
+}
+
+.btn-danger {
+  color: var(--error);
+}
+
+.btn-danger:hover {
+  background-color: var(--error-bg);
+  border-color: var(--error);
+}
+
+/* Grid Wrapper with Custom Scrollbars */
+.spreadsheet-container {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  flex-grow: 1;
+  background-color: var(--bg-app);
+  position: relative;
+}
+
+/* The Spreadsheet Editor Table */
+.spreadsheet-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  table-layout: auto;
+  min-width: max-content;
+}
+
+.spreadsheet-table th, 
+.spreadsheet-table td {
+  border: 1px solid var(--border-strong);
+  padding: 0.5rem 0.75rem;
+  min-width: 120px;
+  max-width: 320px;
+  position: relative;
+  vertical-align: middle;
+  background-color: var(--bg-panel);
+  transition: var(--transition-tactile);
+}
+
+.spreadsheet-table th {
+  background-color: var(--border-subtle);
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.spreadsheet-table td[contenteditable="true"] {
+  outline: none;
+  cursor: text;
+}
+
+.spreadsheet-table td[contenteditable="true"]:focus {
+  background-color: var(--bg-panel);
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+  z-index: 2;
+}
+
+/* Header cells (first row and/or first column when toggled on) */
+.spreadsheet-table td.grid-cell.is-header {
+  background-color: var(--border-subtle);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Selected cells (drag-select, row/column select) */
+.spreadsheet-table td.grid-cell.cell-selected {
+  background-color: var(--accent-bg-hover);
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+}
+
+/* Gutters: row numbers (left) and column labels (top) */
+.grid-corner,
+.col-gutter,
+.row-gutter {
+  background-color: var(--border-subtle) !important;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  text-align: center !important;
+  user-select: none;
+  padding: 0.35rem !important;
+  position: relative;
+  cursor: pointer;
+}
+
+.grid-corner {
+  min-width: 40px !important;
+  width: 40px;
+  cursor: default;
+}
+
+.row-gutter {
+  min-width: 40px !important;
+  width: 40px;
+  max-width: 40px !important;
+}
+
+.col-gutter:hover,
+.row-gutter:hover {
+  background-color: var(--border-strong) !important;
+}
+
+/* Delete (×) control shown on gutter hover */
+.gutter-del {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--error-bg);
+  color: var(--error);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: var(--transition-tactile);
+  border: none;
+}
+
+.col-gutter:hover .gutter-del,
+.row-gutter:hover .gutter-del {
+  opacity: 1;
+}
+
+/* Empty State */
+.editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  height: 100%;
+  padding: 3rem;
+  color: var(--text-tertiary);
+  gap: 0.75rem;
+}
+
+.editor-empty svg {
+  width: 48px;
+  height: 48px;
+  color: var(--border-strong);
+}
+
+/* ==========================================================================
+   Output Workspace - Tabbed Previews & Code
+   ========================================================================== */
+
+/* Tabs Row */
+.tabs-header {
+  display: flex;
+  gap: 0.25rem;
+  background-color: var(--border-subtle);
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
+  margin-bottom: 1rem;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-tactile);
+  flex-grow: 1;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.tab-btn.active {
+  background-color: var(--bg-panel);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Tab Panels Container */
+.tab-content {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.tab-pane {
+  display: none;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.tab-pane.active {
+  display: flex;
+}
+
+/* Code Output View */
+.code-output-container {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background-color: var(--bg-panel);
+}
+
+.code-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background-color: var(--bg-app);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.code-output-view {
+  flex-grow: 1;
+  width: 100%;
+  border: none;
+  background-color: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+  padding: 1rem;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  white-space: pre;
+}
+
+/* Styled Preview Container */
+.styled-preview-viewport {
+  flex-grow: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  background-color: #ffffff; /* Classic white journal backdrop */
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-meta {
+  font-size: 0.75rem;
+  color: #888880;
+  font-style: italic;
+  margin-bottom: 0.5rem;
+}
+
+/* ==========================================================================
+   SCOPE ISOLATION: Exact College Music Symposium Table Styles
+   ========================================================================== */
+
+.symposium-preview {
+  font-family: Georgia, serif; /* Clean scholarly font family */
+  color: #333330;
+}
+
+.symposium-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.symposium-preview th,
+.symposium-preview td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  vertical-align: middle;
+  text-align: left;
+}
+
+.symposium-preview th {
+  background-color: #585852;
+  font-weight: bold;
+  color: #fff;
+  font-family: sans-serif;
+  font-size: 0.9rem;
+}
+
+.symposium-preview td {
+  background-color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.symposium-preview table tr:nth-child(even) td {
+  background-color: #f9f9f9;
+}
+
+.symposium-preview table tr:hover td {
+  background-color: #f1f1f1;
+}
+
+/* Support basic rich text inside symposium cells */
+.symposium-preview p {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.symposium-preview em,
+.symposium-preview i {
+  font-style: italic;
+}
+
+.symposium-preview strong,
+.symposium-preview b {
+  font-weight: bold;
+}
+
+/* Action Floating Feedback */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background-color: var(--text-primary);
+  color: var(--bg-app);
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transform: translateY(1rem);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  z-index: 1000;
+}
+
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Dynamic Interactive Island Notification for Loading */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.loading-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   Footer Component
+   ========================================================================== */
+
+.app-footer {
+  text-align: center;
+  padding: 1.5rem 0;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
+}
+
+.app-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   Manual Dark Theme (toggled by JS via body.dark-theme class)
+   ========================================================================== */
+
+/* Theme toggle icon visibility */
+.theme-moon { display: block; }
+.theme-sun  { display: none;  }
+
+body.dark-theme .theme-moon { display: none;  }
+body.dark-theme .theme-sun  { display: block; }
+
+body.dark-theme {
+  --bg-app: #121211;
+  --bg-panel: #1a1a19;
+  --bg-panel-frosted: rgba(26, 26, 25, 0.85);
+  --text-primary: #f5f5f3;
+  --text-secondary: #b5b5ad;
+  --text-tertiary: #7d7d76;
+  --border-subtle: rgba(45, 45, 43, 0.6);
+  --border-strong: #2d2d2b;
+  --border-focus: #8c8c83;
+
+  --accent: #8c8c83;
+  --accent-light: #b5b5ad;
+  --accent-bg-hover: rgba(140, 140, 131, 0.1);
+  --success: #66bb6a;
+  --success-bg: rgba(102, 187, 106, 0.1);
+  --error: #ef5350;
+  --error-bg: rgba(239, 83, 80, 0.1);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 10px 30px -10px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 20px 40px -15px rgba(0, 0, 0, 0.4);
+  --shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
