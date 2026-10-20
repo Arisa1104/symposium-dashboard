@@ -28,6 +28,14 @@ import {
   type SaliencyFocus,
   type ProcessedPhotoResult
 } from './modules/author-photo';
+import {
+  generateAltTextForItem,
+  createSampleAltTextBatchFiles,
+  type AltTextItem,
+  type ImageCategory,
+  type AltTextStyle,
+  type AltEngineMode
+} from './modules/alt-text-generator';
 
 // Global Toast utility
 export function showToast(message: string, isError: boolean = false) {
@@ -1171,6 +1179,510 @@ function initAuthorPhotoController() {
   });
 }
 
+// 7. Batch Alt Text Generator Controller
+function initAltTextGeneratorController() {
+  const dropzone = document.getElementById("alt-dropzone") as HTMLElement;
+  const fileInput = document.getElementById("alt-file-input") as HTMLInputElement;
+  const uploadSummary = document.getElementById("alt-upload-summary") as HTMLElement;
+  const countBadge = document.getElementById("alt-count-badge") as HTMLElement;
+
+  const btnLoadSample = document.getElementById("btn-alt-load-sample") as HTMLButtonElement;
+  const optStyle = document.getElementById("alt-opt-style") as HTMLSelectElement;
+  const optEngine = document.getElementById("alt-opt-engine") as HTMLSelectElement;
+  const optOcr = document.getElementById("alt-opt-ocr") as HTMLInputElement;
+  const geminiKeyRow = document.getElementById("alt-gemini-key-row") as HTMLElement;
+  const geminiKeyInput = document.getElementById("alt-gemini-api-key") as HTMLInputElement;
+
+  const btnGenerateAll = document.getElementById("btn-alt-generate-all") as HTMLButtonElement;
+  const btnClearAll = document.getElementById("btn-alt-clear-all") as HTMLButtonElement;
+  const itemsListEl = document.getElementById("alt-items-list") as HTMLElement;
+  const emptyStateEl = document.getElementById("alt-empty-state") as HTMLElement;
+
+  const btnTabList = document.getElementById("btn-alt-tab-list") as HTMLButtonElement;
+  const btnTabHtml = document.getElementById("btn-alt-tab-html") as HTMLButtonElement;
+  const btnTabCsv = document.getElementById("btn-alt-tab-csv") as HTMLButtonElement;
+  const exportFilenameLabel = document.getElementById("alt-export-filename-label") as HTMLElement;
+  const batchOutput = document.getElementById("alt-batch-output") as HTMLTextAreaElement;
+  const btnCopyBatch = document.getElementById("btn-alt-copy-batch") as HTMLButtonElement;
+  const btnDownloadBatch = document.getElementById("btn-alt-download-batch") as HTMLButtonElement;
+
+  let items: Array<AltTextItem & { imgEl: HTMLImageElement }> = [];
+  let activeExportTab: 'list' | 'html' | 'csv' = 'list';
+
+  // Restore saved Gemini API key if present
+  const savedKey = localStorage.getItem("symposium-gemini-key");
+  if (savedKey && geminiKeyInput) {
+    geminiKeyInput.value = savedKey;
+  }
+
+  geminiKeyInput?.addEventListener("change", () => {
+    localStorage.setItem("symposium-gemini-key", geminiKeyInput.value.trim());
+  });
+
+  optEngine?.addEventListener("change", () => {
+    geminiKeyRow.style.display = optEngine.value === "gemini-api" ? "flex" : "none";
+    if (items.length > 0) {
+      runBatchGeneration();
+    }
+  });
+
+  optStyle?.addEventListener("change", () => {
+    if (items.length > 0) {
+      runBatchGeneration();
+    }
+  });
+
+  optOcr?.addEventListener("change", () => {
+    if (items.length > 0) {
+      runBatchGeneration();
+    }
+  });
+
+  const escapeAttr = (str: string): string =>
+    str
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const categoryLabel = (cat: string): string => {
+    switch (cat) {
+      case "musical-score":
+        return "Musical Score / Notation";
+      case "diagram-chart":
+        return "Figure / Chart / Diagram";
+      case "author-portrait":
+        return "Author Bio Portrait";
+      case "archival-document":
+        return "Archival / Monochrome";
+      default:
+        return "Performance / Photo";
+    }
+  };
+
+  // Synchronize the right-hand batch output textarea
+  const syncBatchExportView = () => {
+    countBadge.textContent = `${items.length} image${items.length === 1 ? "" : "s"}`;
+    countBadge.classList.toggle("success", items.length > 0);
+
+    const hasItems = items.length > 0;
+    btnGenerateAll.disabled = !hasItems;
+    btnClearAll.disabled = !hasItems;
+    btnCopyBatch.disabled = !hasItems;
+    btnDownloadBatch.disabled = !hasItems;
+
+    if (!hasItems) {
+      batchOutput.value = "";
+      return;
+    }
+
+    if (activeExportTab === "list") {
+      exportFilenameLabel.textContent = "alt_text_batch.txt";
+      batchOutput.value = items
+        .map((it, idx) => {
+          const cat =
+            it.categoryOverride === "auto"
+              ? categoryLabel(it.analysis?.detectedCategory || "performance-photo")
+              : categoryLabel(it.categoryOverride);
+          return `${idx + 1}. ${it.file.name} [${cat}]\nAlt Text: ${it.altText}`;
+        })
+        .join("\n\n");
+    } else if (activeExportTab === "html") {
+      exportFilenameLabel.textContent = "joomla_figures_alt.html";
+      batchOutput.value = items
+        .map(
+          (it) =>
+            `<img src="images/${escapeAttr(it.file.name)}" alt="${escapeAttr(it.altText)}" width="${it.width}" height="${it.height}" loading="lazy" />`
+        )
+        .join("\n");
+    } else {
+      exportFilenameLabel.textContent = "alt_text_batch.csv";
+      const header = `"File Name","Category","Dimensions","Character Count","Alt Text","HTML Tag"`;
+      const rows = items.map((it) => {
+        const cat =
+          it.categoryOverride === "auto"
+            ? categoryLabel(it.analysis?.detectedCategory || "performance-photo")
+            : categoryLabel(it.categoryOverride);
+        const htmlTag = `<img src="${it.file.name}" alt="${it.altText.replace(/"/g, '&quot;')}" />`;
+        const csvEscape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+        return [
+          csvEscape(it.file.name),
+          csvEscape(cat),
+          csvEscape(`${it.width}x${it.height}`),
+          String(it.altText.length),
+          csvEscape(it.altText),
+          csvEscape(htmlTag)
+        ].join(",");
+      });
+      batchOutput.value = [header, ...rows].join("\n");
+    }
+  };
+
+  // Render the list of image cards on the left column
+  const renderItemsList = () => {
+    itemsListEl.innerHTML = "";
+    if (items.length === 0) {
+      itemsListEl.appendChild(emptyStateEl);
+      emptyStateEl.style.display = "flex";
+      syncBatchExportView();
+      return;
+    }
+
+    items.forEach((item, index) => {
+      const card = document.createElement("div");
+      card.className = "alt-item-card";
+
+      const detectedLabel = item.analysis
+        ? `Auto (${categoryLabel(item.analysis.detectedCategory)})`
+        : "Auto-Detect";
+
+      const charLen = item.altText.length;
+      const isGoodLen = charLen > 10 && charLen <= 140;
+
+      card.innerHTML = `
+        <div class="alt-thumb-box">
+          <img class="alt-thumb-img" src="${item.previewUrl}" alt="${escapeAttr(item.file.name)}" />
+          <span class="alt-thumb-meta">${item.width} × ${item.height}</span>
+        </div>
+        <div class="alt-item-body">
+          <div class="alt-item-header">
+            <span class="alt-item-title" title="${escapeAttr(item.file.name)}">${index + 1}. ${escapeAttr(item.file.name)}</span>
+            <div class="alt-item-controls">
+              <select class="alt-category-select" data-action="category">
+                <option value="auto" ${item.categoryOverride === "auto" ? "selected" : ""}>${detectedLabel}</option>
+                <option value="musical-score" ${item.categoryOverride === "musical-score" ? "selected" : ""}>Musical Score / Notation</option>
+                <option value="diagram-chart" ${item.categoryOverride === "diagram-chart" ? "selected" : ""}>Figure / Chart / Diagram</option>
+                <option value="author-portrait" ${item.categoryOverride === "author-portrait" ? "selected" : ""}>Author Bio Portrait</option>
+                <option value="performance-photo" ${item.categoryOverride === "performance-photo" ? "selected" : ""}>Performance / Photo</option>
+                <option value="archival-document" ${item.categoryOverride === "archival-document" ? "selected" : ""}>Archival / Monochrome</option>
+              </select>
+              <button type="button" class="btn" data-action="remove" title="Remove image" style="padding: 0.2rem 0.45rem; font-size: 0.72rem;">✕</button>
+            </div>
+          </div>
+          <input
+            type="text"
+            class="alt-context-input"
+            data-action="context"
+            placeholder="Optional context / caption hint (e.g., 'Ex. 2: Beethoven Op. 109, mm. 1-4' or author name)..."
+            value="${escapeAttr(item.contextHint)}"
+          />
+          <textarea
+            class="alt-textarea"
+            data-action="alttext"
+            placeholder="Generating accessible alt text..."
+          >${item.altText}</textarea>
+          <div class="alt-item-footer">
+            <span class="alt-char-badge ${isGoodLen ? "good" : "warn"}" data-role="charcount">
+              ${charLen} chars ${charLen <= 125 ? "• Concise WCAG" : "• Descriptive"}
+            </span>
+            <div class="alt-card-actions">
+              <button type="button" class="btn" data-action="regenerate">Regenerate</button>
+              <button type="button" class="btn" data-action="copy-alt">Copy Alt</button>
+              <button type="button" class="btn" data-action="copy-html">Copy &lt;img&gt;</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const catSelect = card.querySelector('[data-action="category"]') as HTMLSelectElement;
+      const contextInput = card.querySelector('[data-action="context"]') as HTMLInputElement;
+      const altTextarea = card.querySelector('[data-action="alttext"]') as HTMLTextAreaElement;
+      const charBadge = card.querySelector('[data-role="charcount"]') as HTMLElement;
+      const btnRegen = card.querySelector('[data-action="regenerate"]') as HTMLButtonElement;
+      const btnCopyAlt = card.querySelector('[data-action="copy-alt"]') as HTMLButtonElement;
+      const btnCopyHtml = card.querySelector('[data-action="copy-html"]') as HTMLButtonElement;
+      const btnRemove = card.querySelector('[data-action="remove"]') as HTMLButtonElement;
+
+      catSelect?.addEventListener("change", async () => {
+        item.categoryOverride = catSelect.value as ImageCategory;
+        await generateSingleItem(item);
+        renderItemsList();
+      });
+
+      contextInput?.addEventListener("input", () => {
+        item.contextHint = contextInput.value;
+      });
+
+      contextInput?.addEventListener("change", async () => {
+        item.contextHint = contextInput.value;
+        await generateSingleItem(item);
+        renderItemsList();
+      });
+
+      altTextarea?.addEventListener("input", () => {
+        item.altText = altTextarea.value;
+        const len = item.altText.length;
+        charBadge.textContent = `${len} chars ${len <= 125 ? "• Concise WCAG" : "• Descriptive"}`;
+        charBadge.className = `alt-char-badge ${len > 10 && len <= 140 ? "good" : "warn"}`;
+        syncBatchExportView();
+      });
+
+      btnRegen?.addEventListener("click", async () => {
+        btnRegen.textContent = "...";
+        await generateSingleItem(item);
+        renderItemsList();
+        showToast(`Updated alt text for ${item.file.name}`);
+      });
+
+      btnCopyAlt?.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(item.altText);
+        showToast("Alt text copied to clipboard!");
+      });
+
+      btnCopyHtml?.addEventListener("click", async () => {
+        const tag = `<img src="images/${escapeAttr(item.file.name)}" alt="${escapeAttr(item.altText)}" width="${item.width}" height="${item.height}" loading="lazy" />`;
+        await navigator.clipboard.writeText(tag);
+        showToast("HTML <img> tag copied!");
+      });
+
+      btnRemove?.addEventListener("click", () => {
+        URL.revokeObjectURL(item.previewUrl);
+        items = items.filter((x) => x.id !== item.id);
+        renderItemsList();
+      });
+
+      itemsListEl.appendChild(card);
+    });
+
+    syncBatchExportView();
+  };
+
+  const generateSingleItem = async (item: AltTextItem & { imgEl: HTMLImageElement }) => {
+    try {
+      item.status = "analyzing";
+      const res = await generateAltTextForItem(item, item.imgEl, {
+        style: (optStyle.value as AltTextStyle) || "concise",
+        engine: (optEngine.value as AltEngineMode) || "smart-local",
+        includeOcr: optOcr.checked,
+        geminiApiKey: geminiKeyInput?.value?.trim()
+      });
+      item.altText = res.altText;
+      item.analysis = res.analysis;
+      item.status = "done";
+    } catch (err: any) {
+      console.error(err);
+      item.status = "error";
+      item.errorMessage = err?.message || "Generation failed";
+      showToast(item.errorMessage!, true);
+    }
+  };
+
+  const runBatchGeneration = async () => {
+    if (items.length === 0) return;
+    btnGenerateAll.disabled = true;
+    btnGenerateAll.textContent = "Generating Alt Text...";
+
+    for (const item of items) {
+      await generateSingleItem(item);
+    }
+
+    btnGenerateAll.disabled = false;
+    btnGenerateAll.textContent = "Regenerate All Alt Text";
+    renderItemsList();
+  };
+
+  // Extract embedded media images if a user uploads a .docx file
+  const extractImagesFromDocx = async (docxFile: File): Promise<File[]> => {
+    const zip = await JSZip.loadAsync(docxFile);
+    const extracted: File[] = [];
+    const mediaPaths: string[] = [];
+
+    zip.forEach((relPath) => {
+      if (/^word\/media\/.+\.(jpe?g|png|gif|webp|bmp)$/i.test(relPath)) {
+        mediaPaths.push(relPath);
+      }
+    });
+
+    for (const p of mediaPaths) {
+      const entry = zip.file(p);
+      if (!entry) continue;
+      const blob = await entry.async("blob");
+      const baseName = p.split("/").pop() || "figure.png";
+      const ext = baseName.split(".").pop()?.toLowerCase() || "png";
+      const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+      extracted.push(
+        new File([blob], `${docxFile.name.replace(/\.docx$/i, "")}_${baseName}`, { type: mime })
+      );
+    }
+    return extracted;
+  };
+
+  const addFilesToBatch = async (
+    rawFiles: FileList | File[],
+    hintsMap?: Map<string, string>
+  ) => {
+    const incomingFiles: File[] = [];
+
+    for (const f of Array.from(rawFiles)) {
+      if (f.name.toLowerCase().endsWith(".docx")) {
+        try {
+          const docxImgs = await extractImagesFromDocx(f);
+          incomingFiles.push(...docxImgs);
+        } catch (err) {
+          console.error(err);
+        }
+      } else if (
+        f.type.startsWith("image/") ||
+        /\.(jpe?g|png|webp|gif|bmp|avif|svg)$/i.test(f.name)
+      ) {
+        incomingFiles.push(f);
+      }
+    }
+
+    if (incomingFiles.length === 0) {
+      showToast("No supported images found in upload", true);
+      return;
+    }
+
+    for (const file of incomingFiles) {
+      try {
+        const imgEl = await loadImageFromFile(file);
+        const previewUrl = URL.createObjectURL(file);
+        const newItem: AltTextItem & { imgEl: HTMLImageElement } = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          imgEl,
+          previewUrl,
+          width: imgEl.naturalWidth || imgEl.width,
+          height: imgEl.naturalHeight || imgEl.height,
+          categoryOverride: "auto",
+          contextHint: hintsMap?.get(file.name) || "",
+          altText: "",
+          status: "pending"
+        };
+        await generateSingleItem(newItem);
+        items.push(newItem);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    uploadSummary.textContent = `${items.length} image${items.length === 1 ? "" : "s"} in current batch (drop more to append)`;
+    renderItemsList();
+    showToast(`Generated alt text for ${incomingFiles.length} image${incomingFiles.length === 1 ? "" : "s"}!`);
+  };
+
+  // Upload & Drag-and-Drop listeners
+  dropzone?.addEventListener("click", () => fileInput?.click());
+
+  fileInput?.addEventListener("change", (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      addFilesToBatch(target.files);
+      target.value = "";
+    }
+  });
+
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropzone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((evt) => {
+    dropzone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    });
+  });
+
+  dropzone?.addEventListener("drop", (e: DragEvent) => {
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      addFilesToBatch(e.dataTransfer.files);
+    }
+  });
+
+  // Paste images when Alt Text Generator view is active
+  window.addEventListener("paste", (e: ClipboardEvent) => {
+    const altView = document.getElementById("view-alt-text-generator");
+    if (!altView?.classList.contains("active")) return;
+    // Do not intercept paste inside text inputs/textareas
+    const activeTag = document.activeElement?.tagName.toLowerCase();
+    if (activeTag === "input" || activeTag === "textarea") return;
+
+    const clipItems = e.clipboardData?.items;
+    if (!clipItems) return;
+
+    const pastedFiles: File[] = [];
+    for (let i = 0; i < clipItems.length; i++) {
+      if (clipItems[i].type.startsWith("image/")) {
+        const f = clipItems[i].getAsFile();
+        if (f) pastedFiles.push(f);
+      }
+    }
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      addFilesToBatch(pastedFiles);
+    }
+  });
+
+  // Sample Batch Loader
+  btnLoadSample?.addEventListener("click", async () => {
+    const sampleBatch = await createSampleAltTextBatchFiles();
+    const hints = new Map<string, string>();
+    const files: File[] = [];
+    for (const entry of sampleBatch) {
+      files.push(entry.file);
+      hints.set(entry.file.name, entry.hint);
+    }
+    await addFilesToBatch(files, hints);
+  });
+
+  btnGenerateAll?.addEventListener("click", async () => {
+    await runBatchGeneration();
+    showToast("Regenerated all batch alt text!");
+  });
+
+  btnClearAll?.addEventListener("click", () => {
+    items.forEach((it) => URL.revokeObjectURL(it.previewUrl));
+    items = [];
+    uploadSummary.textContent =
+      "Drag & drop multiple JPG, PNG, WebP files, a Word .docx file, or paste (Ctrl+V)";
+    renderItemsList();
+    showToast("Cleared image batch");
+  });
+
+  // Export Format Tabs
+  const setExportTab = (tab: 'list' | 'html' | 'csv') => {
+    activeExportTab = tab;
+    btnTabList.classList.toggle("active", tab === "list");
+    btnTabHtml.classList.toggle("active", tab === "html");
+    btnTabCsv.classList.toggle("active", tab === "csv");
+    syncBatchExportView();
+  };
+
+  btnTabList?.addEventListener("click", () => setExportTab("list"));
+  btnTabHtml?.addEventListener("click", () => setExportTab("html"));
+  btnTabCsv?.addEventListener("click", () => setExportTab("csv"));
+
+  btnCopyBatch?.addEventListener("click", async () => {
+    if (!batchOutput.value) return;
+    await navigator.clipboard.writeText(batchOutput.value);
+    showToast("Batch alt text output copied to clipboard!");
+  });
+
+  btnDownloadBatch?.addEventListener("click", () => {
+    if (!batchOutput.value) return;
+    const ext = activeExportTab === "html" ? "html" : activeExportTab === "csv" ? "csv" : "txt";
+    const mime =
+      activeExportTab === "html"
+        ? "text/html;charset=utf-8"
+        : activeExportTab === "csv"
+        ? "text/csv;charset=utf-8"
+        : "text/plain;charset=utf-8";
+
+    const blob = new Blob([batchOutput.value], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `symposium_alt_text_batch.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded symposium_alt_text_batch.${ext}!`);
+  });
+}
+
 // App Launch
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
@@ -1181,4 +1693,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initEditorialBoardController();
   initItalicHighlighterController();
   initAuthorPhotoController();
+  initAltTextGeneratorController();
 });

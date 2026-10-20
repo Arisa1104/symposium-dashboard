@@ -30,6 +30,16 @@ All tools execute 100% client-side in the browser with no backend server require
    - Scans `.docx` files, identifies all italicized text runs in body text, tables, and footnotes, and applies yellow highlights for proofreading.
    - Generates a downloadable updated `.docx`.
 
+6. **Author Bio Photo**
+   - Automatic outer border/frame detection and removal.
+   - Smart 3:4 framing that protects faces, headroom, and musical instruments, with interactive drag/zoom fine-tuning.
+   - Resizes photos to `360 × 480 px` JPEG (or preserves original pixel dimensions in a 3:4 aspect ratio when the source is smaller than `360 × 480 px`).
+
+7. **Alt Text Generator**
+   - Batch multi-image uploader (also supports extracting embedded figures directly from `.docx` manuscripts).
+   - Automatically detects musical scores/notation, analytical diagrams/charts, author portraits, and archival photographs to generate accessible WCAG 2.1 AA alt text.
+   - Supports optional OCR text extraction, in-browser WebAssembly neural vision captioning, or Gemini 2.5 Flash Vision API, with batch export to plain text, HTML `<img>` tags, and CSV.
+
 ## Development & Build
 
 ```bash

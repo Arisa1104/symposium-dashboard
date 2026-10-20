@@ -409,3 +409,171 @@
   width: 95px;
 }
 
+/* ==========================================================================
+   Batch Alt Text Generator Styles
+   ========================================================================== */
+
+.alt-api-key-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.alt-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.alt-item-card {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 0.85rem;
+  padding: 0.85rem;
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  transition: border-color 0.2s ease;
+}
+
+.alt-item-card:hover {
+  border-color: var(--border-focus);
+}
+
+@media (max-width: 580px) {
+  .alt-item-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+.alt-thumb-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.alt-thumb-img {
+  width: 112px;
+  height: 92px;
+  object-fit: contain;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.alt-thumb-meta {
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.alt-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.alt-item-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.alt-item-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.alt-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.alt-category-select {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.73rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.alt-context-input {
+  width: 100%;
+  padding: 0.32rem 0.55rem;
+  font-size: 0.76rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.alt-textarea {
+  width: 100%;
+  min-height: 58px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  resize: vertical;
+}
+
+.alt-item-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.alt-char-badge {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.alt-char-badge.good {
+  color: var(--success);
+}
+
+.alt-char-badge.warn {
+  color: #d9822b;
+}
+
+.alt-card-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.alt-card-actions .btn {
+  padding: 0.22rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+
