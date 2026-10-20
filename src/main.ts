@@ -13,6 +13,21 @@ import { convertDocxToArticleHtml } from './modules/article-formatter';
 import { formatReferences } from './modules/references';
 import { parseMembers, formatMembers } from './modules/editorial-board';
 import { highlightItalicsInDocx } from './modules/italic-highlighter';
+import JSZip from 'jszip';
+import {
+  loadImageFromFile,
+  detectImageBorders,
+  analyzeSubjectAndInstruments,
+  computeOptimalCropRect,
+  renderAuthorBioPhoto,
+  createSampleAuthorPhotoFile,
+  createSmallSampleAuthorPhotoFile,
+  TARGET_ASPECT,
+  type TrimBounds,
+  type CropRect,
+  type SaliencyFocus,
+  type ProcessedPhotoResult
+} from './modules/author-photo';
 
 // Global Toast utility
 export function showToast(message: string, isError: boolean = false) {
@@ -423,6 +438,739 @@ function initItalicHighlighterController() {
   });
 }
 
+// 6. Author Bio Photo Processor Controller
+interface PhotoQueueItem {
+  file: File;
+  img: HTMLImageElement;
+  trim: TrimBounds;
+  focus: SaliencyFocus;
+  cropRect: CropRect;
+  zoomPercent: number;
+  lastResult?: ProcessedPhotoResult;
+}
+
+function initAuthorPhotoController() {
+  const dropzone = document.getElementById("photo-dropzone") as HTMLElement;
+  const fileInput = document.getElementById("photo-file-input") as HTMLInputElement;
+  const fileNameDisplay = document.getElementById("photo-file-name") as HTMLElement;
+  const batchBar = document.getElementById("photo-batch-bar") as HTMLElement;
+  const statusBadge = document.getElementById("photo-status-badge") as HTMLElement;
+
+  const btnSampleFramed = document.getElementById("btn-photo-sample-framed") as HTMLButtonElement;
+  const btnSampleSmall = document.getElementById("btn-photo-sample-small") as HTMLButtonElement;
+
+  const optAutoTrim = document.getElementById("photo-opt-autotrim") as HTMLInputElement;
+  const optShowGuides = document.getElementById("photo-opt-show-guides") as HTMLInputElement;
+  const optTrimSens = document.getElementById("photo-opt-trim-sens") as HTMLInputElement;
+  const trimSensVal = document.getElementById("photo-trim-sens-val") as HTMLElement;
+  const optZoom = document.getElementById("photo-opt-zoom") as HTMLInputElement;
+  const zoomVal = document.getElementById("photo-zoom-val") as HTMLElement;
+  const optFitMode = document.getElementById("photo-opt-fitmode") as HTMLSelectElement;
+
+  const btnAutoFrame = document.getElementById("btn-photo-auto-frame") as HTMLButtonElement;
+  const btnCenter = document.getElementById("btn-photo-center") as HTMLButtonElement;
+  const btnHeadroom = document.getElementById("btn-photo-headroom") as HTMLButtonElement;
+  const btnInstrument = document.getElementById("btn-photo-instrument") as HTMLButtonElement;
+
+  const interactiveCanvas = document.getElementById("photo-interactive-canvas") as HTMLCanvasElement;
+  const stageEmpty = document.getElementById("photo-stage-empty") as HTMLElement;
+  const wideWarning = document.getElementById("photo-wide-warning") as HTMLElement;
+
+  const specOutput = document.getElementById("photo-spec-output") as HTMLElement;
+  const specSource = document.getElementById("photo-spec-source") as HTMLElement;
+  const specBorder = document.getElementById("photo-spec-border") as HTMLElement;
+  const specFilesize = document.getElementById("photo-spec-filesize") as HTMLElement;
+
+  const btnTabActual = document.getElementById("btn-photo-tab-actual") as HTMLButtonElement;
+  const btnTabBio = document.getElementById("btn-photo-tab-bio") as HTMLButtonElement;
+  const paneActual = document.getElementById("photo-pane-actual") as HTMLElement;
+  const paneBio = document.getElementById("photo-pane-bio") as HTMLElement;
+
+  const scaleNote = document.getElementById("photo-scale-note") as HTMLElement;
+  const outputImg = document.getElementById("photo-output-img") as HTMLImageElement;
+  const outputEmpty = document.getElementById("photo-output-empty") as HTMLElement;
+  const bioPreviewImg = document.getElementById("photo-bio-preview-img") as HTMLImageElement;
+
+  const outputFilenameInput = document.getElementById("photo-output-filename") as HTMLInputElement;
+  const optQuality = document.getElementById("photo-opt-quality") as HTMLInputElement;
+  const qualityVal = document.getElementById("photo-quality-val") as HTMLElement;
+
+  const btnDownloadJpg = document.getElementById("btn-download-photo-jpg") as HTMLButtonElement;
+  const btnCopyImg = document.getElementById("btn-copy-photo-img") as HTMLButtonElement;
+  const btnDownloadZip = document.getElementById("btn-download-photo-zip") as HTMLButtonElement;
+
+  let queue: PhotoQueueItem[] = [];
+  let activeIndex = -1;
+  let displayScale = 1;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let cropStartX = 0;
+  let cropStartY = 0;
+
+  const getActiveItem = (): PhotoQueueItem | null =>
+    activeIndex >= 0 && activeIndex < queue.length ? queue[activeIndex] : null;
+
+  const toJpgFilename = (origName: string): string => {
+    const base = origName.replace(/\.[^.]+$/, "").trim() || "author-bio";
+    return `${base}-bio.jpg`;
+  };
+
+  // Clamp a CropRect inside the active item's border-trimmed region
+  const clampCropToTrim = (item: PhotoQueueItem, rect: CropRect): CropRect => {
+    const availX = item.trim.left;
+    const availY = item.trim.top;
+    const availW = Math.max(12, item.img.width - item.trim.left - item.trim.right);
+    const availH = Math.max(16, item.img.height - item.trim.top - item.trim.bottom);
+
+    const w = Math.min(availW, Math.max(24, Math.round(rect.width)));
+    const h = Math.min(availH, Math.max(32, Math.round(w / TARGET_ASPECT)));
+    const finalW = Math.round(h * TARGET_ASPECT);
+
+    const x = Math.max(availX, Math.min(availX + availW - finalW, Math.round(rect.x)));
+    const y = Math.max(availY, Math.min(availY + availH - h, Math.round(rect.y)));
+
+    return { x, y, width: finalW, height: h };
+  };
+
+  // Apply zoom percentage around current crop center
+  const applyZoomToCrop = (item: PhotoQueueItem, zoomPct: number) => {
+    const availX = item.trim.left;
+    const availY = item.trim.top;
+    const availW = Math.max(12, item.img.width - item.trim.left - item.trim.right);
+    const availH = Math.max(16, item.img.height - item.trim.top - item.trim.bottom);
+
+    let maxCropW: number;
+    let maxCropH: number;
+    if (availW / availH > TARGET_ASPECT) {
+      maxCropH = availH;
+      maxCropW = Math.round(maxCropH * TARGET_ASPECT);
+    } else {
+      maxCropW = availW;
+      maxCropH = Math.round(maxCropW / TARGET_ASPECT);
+    }
+
+    const scale = Math.max(0.4, Math.min(1, zoomPct / 100));
+    const newW = Math.max(24, Math.round(maxCropW * scale));
+    const newH = Math.max(32, Math.round(newW / TARGET_ASPECT));
+
+    const centerX = item.cropRect.x + item.cropRect.width / 2;
+    const centerY = item.cropRect.y + item.cropRect.height / 2;
+
+    item.zoomPercent = zoomPct;
+    item.cropRect = clampCropToTrim(item, {
+      x: Math.round(centerX - newW / 2),
+      y: Math.round(centerY - newH / 2),
+      width: newW,
+      height: newH
+    });
+
+    // Ensure it stays within available area
+    if (item.cropRect.x < availX) item.cropRect.x = availX;
+    if (item.cropRect.y < availY) item.cropRect.y = availY;
+  };
+
+  // Render the interactive editor canvas with border overlay, subject box, and 3:4 crop frame
+  const drawInteractiveStage = () => {
+    const item = getActiveItem();
+    if (!item) {
+      interactiveCanvas.style.display = "none";
+      stageEmpty.style.display = "flex";
+      return;
+    }
+
+    interactiveCanvas.style.display = "block";
+    stageEmpty.style.display = "none";
+
+    const maxStageW = 500;
+    const maxStageH = 410;
+    displayScale = Math.min(1, maxStageW / item.img.width, maxStageH / item.img.height);
+
+    const cw = Math.max(80, Math.round(item.img.width * displayScale));
+    const ch = Math.max(80, Math.round(item.img.height * displayScale));
+
+    interactiveCanvas.width = cw;
+    interactiveCanvas.height = ch;
+
+    const ctx = interactiveCanvas.getContext("2d");
+    if (!ctx) return;
+
+    // 1. Draw full original image
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.drawImage(item.img, 0, 0, cw, ch);
+
+    // 2. Darken outside area
+    ctx.fillStyle = "rgba(15, 15, 14, 0.56)";
+    ctx.fillRect(0, 0, cw, ch);
+
+    const trim = item.trim;
+    const tx = Math.round(trim.left * displayScale);
+    const ty = Math.round(trim.top * displayScale);
+    const tw = Math.round((item.img.width - trim.left - trim.right) * displayScale);
+    const th = Math.round((item.img.height - trim.top - trim.bottom) * displayScale);
+
+    // 3. Highlight excluded outer border if detected
+    const hasBorder = trim.top > 0 || trim.right > 0 || trim.bottom > 0 || trim.left > 0;
+    if (hasBorder && optShowGuides.checked) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(239, 83, 80, 0.85)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(tx + 0.5, ty + 0.5, tw - 1, th - 1);
+
+      // Label trimmed border
+      ctx.fillStyle = "rgba(198, 40, 40, 0.88)";
+      ctx.fillRect(6, 6, 134, 19);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "600 10px Outfit, sans-serif";
+      ctx.fillText("Outer Border Excluded", 12, 19);
+      ctx.restore();
+    }
+
+    const fitMode = optFitMode.value as 'crop' | 'contain-blur' | 'contain-solid';
+
+    // 4. Reveal active crop region in full brightness
+    const activeRect =
+      fitMode === "crop"
+        ? item.cropRect
+        : {
+            x: trim.left,
+            y: trim.top,
+            width: item.img.width - trim.left - trim.right,
+            height: item.img.height - trim.top - trim.bottom
+          };
+
+    const rx = Math.round(activeRect.x * displayScale);
+    const ry = Math.round(activeRect.y * displayScale);
+    const rw = Math.round(activeRect.width * displayScale);
+    const rh = Math.round(activeRect.height * displayScale);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(rx, ry, rw, rh);
+    ctx.clip();
+    ctx.drawImage(item.img, 0, 0, cw, ch);
+    ctx.restore();
+
+    // 5. Optional detected subject & instrument guide box
+    if (optShowGuides.checked) {
+      const ib = item.focus.importantBox;
+      const ix = Math.round(ib.x * displayScale);
+      const iy = Math.round(ib.y * displayScale);
+      const iw = Math.round(ib.width * displayScale);
+      const ih = Math.round(ib.height * displayScale);
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.85)";
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(ix, iy, iw, ih);
+      ctx.restore();
+    }
+
+    // 6. Rule-of-thirds grid + 3:4 crop frame border
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.32)";
+    ctx.lineWidth = 1;
+    for (let i = 1; i <= 2; i++) {
+      const gx = Math.round(rx + (rw * i) / 3) + 0.5;
+      const gy = Math.round(ry + (rh * i) / 3) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(gx, ry);
+      ctx.lineTo(gx, ry + rh);
+      ctx.moveTo(rx, gy);
+      ctx.lineTo(rx + rw, gy);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2);
+
+    // Corner handles
+    const handleLen = 12;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3.5;
+    const corners: Array<[number, number, number, number]> = [
+      [rx + 2, ry + 2, 1, 1],
+      [rx + rw - 2, ry + 2, -1, 1],
+      [rx + 2, ry + rh - 2, 1, -1],
+      [rx + rw - 2, ry + rh - 2, -1, -1]
+    ];
+    for (const [cx, cy, dx, dy] of corners) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + dy * handleLen);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx + dx * handleLen, cy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  // Render the processed JPEG output and update specs
+  const updateOutputRender = async () => {
+    const item = getActiveItem();
+    if (!item) return;
+
+    drawInteractiveStage();
+
+    const fitMode = optFitMode.value as 'crop' | 'contain-blur' | 'contain-solid';
+    const quality = (parseInt(optQuality.value, 10) || 92) / 100;
+
+    const res = await renderAuthorBioPhoto(item.img, item.trim, item.cropRect, {
+      autoTrimBorder: optAutoTrim.checked,
+      borderSensitivity: parseInt(optTrimSens.value, 10) || 50,
+      fitMode,
+      padColor: "#f4f3ef",
+      jpegQuality: quality
+    });
+
+    item.lastResult = res;
+
+    // Update diagnostics bar
+    specOutput.textContent = `${res.outputWidth} × ${res.outputHeight} px`;
+    specSource.textContent = `${res.originalWidth} × ${res.originalHeight} px`;
+
+    if (res.hasBorderRemoved) {
+      const { top, right, bottom, left } = res.trimmedBounds;
+      specBorder.textContent = `T:${top} R:${right} B:${bottom} L:${left}px`;
+    } else {
+      specBorder.textContent = "None (0px)";
+    }
+
+    const kb = (res.fileSizeBytes / 1024).toFixed(1);
+    specFilesize.textContent = `JPEG • ${kb} KB`;
+
+    // Show small-image scale preservation notice if source crop was < 360×480
+    if (res.wasKeptOriginalScale) {
+      scaleNote.style.display = "block";
+      scaleNote.textContent = `Small source photo: kept original scale (${res.outputWidth} × ${res.outputHeight} px) at exact 3:4 aspect ratio without upscaling.`;
+    } else {
+      scaleNote.style.display = "none";
+    }
+
+    wideWarning.style.display =
+      item.focus.isWideSubject && fitMode === "crop" ? "block" : "none";
+
+    outputImg.src = res.dataUrl;
+    outputImg.width = res.outputWidth;
+    outputImg.height = res.outputHeight;
+    outputImg.style.display = "block";
+    outputEmpty.style.display = "none";
+
+    bioPreviewImg.src = res.dataUrl;
+
+    btnDownloadJpg.disabled = false;
+    btnCopyImg.disabled = false;
+    statusBadge.textContent = `${res.outputWidth} × ${res.outputHeight} JPEG`;
+    statusBadge.classList.add("success");
+  };
+
+  // Re-detect border & smart crop for an item
+  const recomputeSmartFraming = async (item: PhotoQueueItem) => {
+    const sens = parseInt(optTrimSens.value, 10) || 50;
+    item.trim = optAutoTrim.checked
+      ? detectImageBorders(item.img, sens)
+      : { top: 0, right: 0, bottom: 0, left: 0 };
+
+    item.focus = await analyzeSubjectAndInstruments(item.img, item.trim);
+    item.zoomPercent = 100;
+    optZoom.value = "100";
+    zoomVal.textContent = "100%";
+    item.cropRect = computeOptimalCropRect(
+      item.img.width,
+      item.img.height,
+      item.trim,
+      item.focus
+    );
+  };
+
+  const renderBatchBar = () => {
+    if (queue.length <= 1) {
+      batchBar.style.display = "none";
+      btnDownloadZip.style.display = "none";
+      return;
+    }
+
+    batchBar.style.display = "flex";
+    btnDownloadZip.style.display = "inline-flex";
+    batchBar.innerHTML = "";
+
+    queue.forEach((qItem, idx) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `photo-batch-chip${idx === activeIndex ? " active" : ""}`;
+      chip.textContent = `${idx + 1}. ${qItem.file.name}`;
+      chip.addEventListener("click", () => {
+        activeIndex = idx;
+        optZoom.value = String(qItem.zoomPercent);
+        zoomVal.textContent = `${qItem.zoomPercent}%`;
+        outputFilenameInput.value = toJpgFilename(qItem.file.name);
+        renderBatchBar();
+        updateOutputRender();
+      });
+      batchBar.appendChild(chip);
+    });
+  };
+
+  const handleFilesLoaded = async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(
+      (f) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name)
+    );
+
+    if (imageFiles.length === 0) {
+      showToast("Please select a valid image file (JPG, PNG, WebP)", true);
+      return;
+    }
+
+    statusBadge.textContent = "Analyzing...";
+    const newItems: PhotoQueueItem[] = [];
+
+    for (const file of imageFiles) {
+      try {
+        const img = await loadImageFromFile(file);
+        const sens = parseInt(optTrimSens.value, 10) || 50;
+        const trim = optAutoTrim.checked
+          ? detectImageBorders(img, sens)
+          : { top: 0, right: 0, bottom: 0, left: 0 };
+        const focus = await analyzeSubjectAndInstruments(img, trim);
+        const cropRect = computeOptimalCropRect(img.width, img.height, trim, focus);
+
+        newItems.push({
+          file,
+          img,
+          trim,
+          focus,
+          cropRect,
+          zoomPercent: 100
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (newItems.length === 0) {
+      showToast("Could not decode the selected image(s)", true);
+      return;
+    }
+
+    queue = newItems;
+    activeIndex = 0;
+
+    const first = queue[0];
+    fileNameDisplay.textContent =
+      queue.length === 1
+        ? `${first.file.name} (${first.img.width}×${first.img.height})`
+        : `${queue.length} author photos loaded`;
+
+    outputFilenameInput.value = toJpgFilename(first.file.name);
+    optZoom.value = "100";
+    zoomVal.textContent = "100%";
+
+    renderBatchBar();
+    await updateOutputRender();
+    showToast(
+      first.trim.top || first.trim.left || first.trim.right || first.trim.bottom
+        ? "Border removed & smart 3:4 framing applied!"
+        : "Smart 3:4 framing applied!"
+    );
+  };
+
+  // Upload & Drag-and-Drop listeners
+  dropzone?.addEventListener("click", () => fileInput?.click());
+
+  fileInput?.addEventListener("change", (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      handleFilesLoaded(target.files);
+    }
+  });
+
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropzone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((evt) => {
+    dropzone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    });
+  });
+
+  dropzone?.addEventListener("drop", (e: DragEvent) => {
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      handleFilesLoaded(e.dataTransfer.files);
+    }
+  });
+
+  // Paste image from clipboard when Author Photo view is active
+  window.addEventListener("paste", (e: ClipboardEvent) => {
+    const authorView = document.getElementById("view-author-photo");
+    if (!authorView?.classList.contains("active")) return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const pastedFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const f = items[i].getAsFile();
+        if (f) pastedFiles.push(f);
+      }
+    }
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      handleFilesLoaded(pastedFiles);
+    }
+  });
+
+  // Sample Demo Loaders
+  btnSampleFramed?.addEventListener("click", async () => {
+    const sampleFile = await createSampleAuthorPhotoFile();
+    await handleFilesLoaded([sampleFile]);
+  });
+
+  btnSampleSmall?.addEventListener("click", async () => {
+    const smallFile = await createSmallSampleAuthorPhotoFile();
+    await handleFilesLoaded([smallFile]);
+  });
+
+  // Control Listeners
+  optAutoTrim?.addEventListener("change", async () => {
+    const item = getActiveItem();
+    if (!item) return;
+    await recomputeSmartFraming(item);
+    await updateOutputRender();
+  });
+
+  optShowGuides?.addEventListener("change", () => {
+    drawInteractiveStage();
+  });
+
+  optTrimSens?.addEventListener("input", async () => {
+    trimSensVal.textContent = optTrimSens.value;
+    const item = getActiveItem();
+    if (!item || !optAutoTrim.checked) return;
+    await recomputeSmartFraming(item);
+    await updateOutputRender();
+  });
+
+  optZoom?.addEventListener("input", () => {
+    const item = getActiveItem();
+    const z = parseInt(optZoom.value, 10) || 100;
+    zoomVal.textContent = `${z}%`;
+    if (!item) return;
+    applyZoomToCrop(item, z);
+    updateOutputRender();
+  });
+
+  optFitMode?.addEventListener("change", () => {
+    updateOutputRender();
+  });
+
+  optQuality?.addEventListener("input", () => {
+    qualityVal.textContent = `${optQuality.value}%`;
+    updateOutputRender();
+  });
+
+  // Quick Framing Buttons
+  btnAutoFrame?.addEventListener("click", async () => {
+    const item = getActiveItem();
+    if (!item) return;
+    await recomputeSmartFraming(item);
+    await updateOutputRender();
+    showToast("Smart face & instrument framing restored!");
+  });
+
+  btnCenter?.addEventListener("click", () => {
+    const item = getActiveItem();
+    if (!item) return;
+    const availX = item.trim.left;
+    const availY = item.trim.top;
+    const availW = item.img.width - item.trim.left - item.trim.right;
+    const availH = item.img.height - item.trim.top - item.trim.bottom;
+
+    item.cropRect = clampCropToTrim(item, {
+      x: availX + (availW - item.cropRect.width) / 2,
+      y: availY + (availH - item.cropRect.height) / 2,
+      width: item.cropRect.width,
+      height: item.cropRect.height
+    });
+    updateOutputRender();
+  });
+
+  btnHeadroom?.addEventListener("click", () => {
+    const item = getActiveItem();
+    if (!item) return;
+    // Shift crop window toward the top of the trimmed photo so the head has full headroom
+    item.cropRect = clampCropToTrim(item, {
+      ...item.cropRect,
+      y: item.trim.top
+    });
+    updateOutputRender();
+    showToast("Aligned to top to protect headroom!");
+  });
+
+  btnInstrument?.addEventListener("click", () => {
+    const item = getActiveItem();
+    if (!item) return;
+    // Shift crop window lower to include instruments held in lower torso/hands
+    const availBottom = item.img.height - item.trim.bottom;
+    item.cropRect = clampCropToTrim(item, {
+      ...item.cropRect,
+      y: availBottom - item.cropRect.height
+    });
+    updateOutputRender();
+    showToast("Shifted down to protect lower instrument area!");
+  });
+
+  // Interactive Pointer Dragging on Stage Canvas
+  interactiveCanvas?.addEventListener("pointerdown", (e: PointerEvent) => {
+    const item = getActiveItem();
+    if (!item || optFitMode.value !== "crop") return;
+
+    isDragging = true;
+    interactiveCanvas.setPointerCapture(e.pointerId);
+    const rect = interactiveCanvas.getBoundingClientRect();
+    const scaleX = interactiveCanvas.width / rect.width;
+    const scaleY = interactiveCanvas.height / rect.height;
+
+    dragStartX = (e.clientX - rect.left) * scaleX;
+    dragStartY = (e.clientY - rect.top) * scaleY;
+    cropStartX = item.cropRect.x;
+    cropStartY = item.cropRect.y;
+  });
+
+  interactiveCanvas?.addEventListener("pointermove", (e: PointerEvent) => {
+    if (!isDragging) return;
+    const item = getActiveItem();
+    if (!item) return;
+
+    const rect = interactiveCanvas.getBoundingClientRect();
+    const scaleX = interactiveCanvas.width / rect.width;
+    const scaleY = interactiveCanvas.height / rect.height;
+
+    const curX = (e.clientX - rect.left) * scaleX;
+    const curY = (e.clientY - rect.top) * scaleY;
+
+    const deltaImgX = (curX - dragStartX) / displayScale;
+    const deltaImgY = (curY - dragStartY) / displayScale;
+
+    item.cropRect = clampCropToTrim(item, {
+      x: cropStartX + deltaImgX,
+      y: cropStartY + deltaImgY,
+      width: item.cropRect.width,
+      height: item.cropRect.height
+    });
+
+    drawInteractiveStage();
+  });
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    updateOutputRender();
+  };
+
+  interactiveCanvas?.addEventListener("pointerup", endDrag);
+  interactiveCanvas?.addEventListener("pointercancel", endDrag);
+
+  // Preview Tabs
+  btnTabActual?.addEventListener("click", () => {
+    btnTabActual.classList.add("active");
+    btnTabBio.classList.remove("active");
+    paneActual.style.display = "flex";
+    paneBio.style.display = "none";
+  });
+
+  btnTabBio?.addEventListener("click", () => {
+    btnTabBio.classList.add("active");
+    btnTabActual.classList.remove("active");
+    paneBio.style.display = "block";
+    paneActual.style.display = "none";
+  });
+
+  // Download Single JPEG
+  btnDownloadJpg?.addEventListener("click", () => {
+    const item = getActiveItem();
+    if (!item?.lastResult) return;
+
+    let fileName = outputFilenameInput.value.trim() || "author-bio.jpg";
+    if (!/\.jpe?g$/i.test(fileName)) {
+      fileName += ".jpg";
+    }
+
+    const url = URL.createObjectURL(item.lastResult.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded ${fileName}!`);
+  });
+
+  // Copy Processed Image to Clipboard
+  btnCopyImg?.addEventListener("click", async () => {
+    const item = getActiveItem();
+    if (!item?.lastResult) return;
+
+    try {
+      // Clipboard API requires image/png in many browsers, so convert rendered image or write png blob
+      const imgEl = await loadImageFromFile(item.lastResult.blob);
+      const c = document.createElement("canvas");
+      c.width = imgEl.width;
+      c.height = imgEl.height;
+      c.getContext("2d")?.drawImage(imgEl, 0, 0);
+      const pngBlob = await new Promise<Blob>((resolve, reject) =>
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error("Clipboard blob error"))), "image/png")
+      );
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
+      showToast("Processed photo copied to clipboard!");
+    } catch {
+      showToast("Could not copy image to clipboard in this browser", true);
+    }
+  });
+
+  // Batch Download All as .zip
+  btnDownloadZip?.addEventListener("click", async () => {
+    if (queue.length === 0) return;
+
+    try {
+      const zip = new JSZip();
+      const fitMode = optFitMode.value as 'crop' | 'contain-blur' | 'contain-solid';
+      const quality = (parseInt(optQuality.value, 10) || 92) / 100;
+
+      for (const qItem of queue) {
+        const res =
+          qItem.lastResult ||
+          (await renderAuthorBioPhoto(qItem.img, qItem.trim, qItem.cropRect, {
+            autoTrimBorder: optAutoTrim.checked,
+            borderSensitivity: parseInt(optTrimSens.value, 10) || 50,
+            fitMode,
+            padColor: "#f4f3ef",
+            jpegQuality: quality
+          }));
+        zip.file(toJpgFilename(qItem.file.name), res.blob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "author-bio-photos.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`Downloaded ${queue.length} JPEG photos as ZIP!`);
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to build ZIP archive", true);
+    }
+  });
+}
+
 // App Launch
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
@@ -432,4 +1180,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initReferenceFormatterController();
   initEditorialBoardController();
   initItalicHighlighterController();
+  initAuthorPhotoController();
 });
