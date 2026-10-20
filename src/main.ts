@@ -1213,10 +1213,18 @@ function initAltTextGeneratorController() {
   const savedKey = localStorage.getItem("symposium-gemini-key");
   if (savedKey && geminiKeyInput) {
     geminiKeyInput.value = savedKey;
+    if (optEngine) {
+      optEngine.value = "gemini-api";
+      geminiKeyRow.style.display = "flex";
+    }
   }
 
   geminiKeyInput?.addEventListener("change", () => {
-    localStorage.setItem("symposium-gemini-key", geminiKeyInput.value.trim());
+    const key = geminiKeyInput.value.trim();
+    localStorage.setItem("symposium-gemini-key", key);
+    if (key && items.length > 0 && optEngine.value === "gemini-api") {
+      runBatchGeneration();
+    }
   });
 
   optEngine?.addEventListener("change", () => {

@@ -68,27 +68,43 @@ export function parseFilenameContext(fileName: string): {
   exampleLabel: string | null;
 } {
   const withoutExt = fileName.replace(/\.[^.]+$/, '');
-  const normalized = withoutExt
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b(final|rev|revised|copy|cropped|bio|img|image|screenshot|scan)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 
   let figureLabel: string | null = null;
   let exampleLabel: string | null = null;
 
-  const figMatch = withoutExt.match(/\b(?:fig(?:ure)?)\s*[-_.]?\s*(\d+[a-z]?)\b/i);
+  // Match singular or plural Figure(s) with optional ranges like "Figures 1a-1c", "Fig. 2b", "Figure 3"
+  const figMatch = withoutExt.match(
+    /\b(figs?(?:ures?)?)\s*[-_.:]*\s*(\d+[a-z]?(?:\s*[-–—_to]+\s*(?:figs?(?:ures?)?\s*)?\d*[a-z])?)\b/i
+  );
   if (figMatch) {
-    figureLabel = `Figure ${figMatch[1]}`;
+    const isPlural = /s$/i.test(figMatch[1]) || /[-–—_]|to/i.test(figMatch[2]);
+    const rangeClean = figMatch[2].replace(/\s*[-_]\s*/g, '–').trim();
+    figureLabel = `${isPlural ? 'Figures' : 'Figure'} ${rangeClean}`;
   }
 
-  const exMatch = withoutExt.match(/\b(?:ex(?:ample)?|mus(?:ical)?\s*ex)\s*[-_.]?\s*(\d+[a-z]?)\b/i);
+  // Match singular or plural Example(s) / Musical Example(s)
+  const exMatch = withoutExt.match(
+    /\b((?:mus(?:ical)?\s*)?ex(?:amples?)?)\s*[-_.:]*\s*(\d+[a-z]?(?:\s*[-–—_to]+\s*\d*[a-z])?)\b/i
+  );
   if (exMatch) {
-    exampleLabel = `Musical Example ${exMatch[1]}`;
+    const isPlural = /s$/i.test(exMatch[1]) || /[-–—_]|to/i.test(exMatch[2]);
+    const rangeClean = exMatch[2].replace(/\s*[-_]\s*/g, '–').trim();
+    exampleLabel = `${isPlural ? 'Musical Examples' : 'Musical Example'} ${rangeClean}`;
   }
+
+  // Strip the matched figure/example number tokens and generic noise words so only true descriptive topic words remain
+  const strippedTopic = withoutExt
+    .replace(
+      /\b(?:figs?(?:ures?)?|(?:mus(?:ical)?\s*)?ex(?:amples?)?|tables?)\s*[-_.:]*\s*\d+[a-z]?(?:\s*[-–—_to]+\s*(?:figs?(?:ures?)?\s*)?\d*[a-z])?\b/gi,
+      ' '
+    )
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b(final|rev|revised|copy|cropped|bio|img|image|screenshot|scan|page|p)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   return {
-    cleanTitle: normalized,
+    cleanTitle: strippedTopic,
     figureLabel,
     exampleLabel
   };
@@ -370,15 +386,17 @@ export function buildStructuredAltText(
   const userHint = contextHint.trim();
   const ocrText = analysis.extractedTextSnippet.trim();
 
-  // Determine the subject phrase from user context, filename, or OCR
+  // Determine the subject phrase from user context, filename topic (excluding generic figure numbers), or OCR
   const hasMeaningfulFilename =
     cleanTitle.length > 2 &&
-    !/^(dsc|img|photo|pic|untitled|screen|figure|example|sample)\s*\d*$/i.test(cleanTitle);
+    !/^(dsc|img|photo|pic|untitled|screen|figure|figures|example|examples|table|sample|\d+[a-z]?)\s*\d*[a-z]*$/i.test(
+      cleanTitle
+    );
 
   const subjectPhrase =
     userHint ||
     (hasMeaningfulFilename ? cleanTitle : '') ||
-    (ocrText ? `labeled "${ocrText.slice(0, 65)}"` : '');
+    (ocrText ? `labeled "${ocrText.slice(0, 75)}"` : '');
 
   if (category === 'musical-score') {
     const prefix = exampleLabel ? `${exampleLabel}: ` : '';
@@ -596,7 +614,12 @@ export async function generateAltTextForItem(
     analysis.extractedTextSnippet = await extractVisibleTextWithOcr(imgEl);
   }
 
-  if (options.engine === 'gemini-api' && options.geminiApiKey?.trim()) {
+  if (options.engine === 'gemini-api') {
+    if (!options.geminiApiKey?.trim()) {
+      throw new Error(
+        'Please enter your Gemini API Key in the box above to use Gemini 2.5 Flash Vision.'
+      );
+    }
     const geminiText = await generateCaptionWithGemini(
       item.file,
       item.contextHint,
@@ -608,16 +631,12 @@ export async function generateAltTextForItem(
   }
 
   if (options.engine === 'browser-ai') {
-    try {
-      const aiText = await generateCaptionWithBrowserAi(
-        item.previewUrl,
-        item.contextHint,
-        options.style
-      );
-      return { altText: aiText, analysis };
-    } catch {
-      // Fallback to structured visual + OCR synthesis if CDN/WASM fails
-    }
+    const aiText = await generateCaptionWithBrowserAi(
+      item.previewUrl,
+      item.contextHint,
+      options.style
+    );
+    return { altText: aiText, analysis };
   }
 
   const structuredText = buildStructuredAltText(
