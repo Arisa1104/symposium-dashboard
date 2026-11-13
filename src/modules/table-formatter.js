@@ -295,6 +295,9 @@ function loadWorkspaceSampleDocx() {
 
 // --- CLIPBOARD & RAW TEXT INPUTS ---
 function handleClipboardPaste(e) {
+  const tableView = document.getElementById("view-table-formatter");
+  if (tableView && !tableView.classList.contains("active")) return;
+
   // Capture HTML clipboard data
   const htmlData = e.clipboardData.getData("text/html");
   const textData = e.clipboardData.getData("text/plain");

@@ -9,8 +9,17 @@
  */
 
 import { initTableFormatter } from './modules/table-formatter-adapter';
-import { convertDocxToArticleHtml } from './modules/article-formatter';
-import { formatReferences } from './modules/references';
+import {
+  convertDocxToArticleHtml,
+  extractReferencesFromDocx,
+  formatReferenceCitation,
+} from './modules/article-formatter';
+import {
+  citationHtmlToEditableText,
+  formatCitationHtmlArray,
+  formatReferences,
+  parseWordClipboardHtmlToCitations,
+} from './modules/references';
 import { parseMembers, formatMembers } from './modules/editorial-board';
 import { highlightItalicsInDocx } from './modules/italic-highlighter';
 import JSZip from 'jszip';
@@ -232,20 +241,228 @@ function initArticleFormatterController() {
 
 // 3. Reference Formatter Controller
 function initReferenceFormatterController() {
+  const refView = document.getElementById("view-reference-formatter") as HTMLElement;
+  const dropzone = document.getElementById("ref-dropzone") as HTMLElement;
+  const fileInput = document.getElementById("ref-file-input") as HTMLInputElement;
+  const fileNameDisplay = document.getElementById("ref-file-name") as HTMLElement;
+  const pasteDropzone = document.getElementById("ref-paste-dropzone") as HTMLElement;
+  const statusBadge = document.getElementById("ref-status-badge") as HTMLElement;
+  const optHeading = document.getElementById("ref-opt-heading") as HTMLInputElement;
+
   const refInput = document.getElementById("ref-input") as HTMLTextAreaElement;
   const btnFormat = document.getElementById("btn-format-refs") as HTMLButtonElement;
   const btnLoadSample = document.getElementById("btn-load-sample-ref") as HTMLButtonElement;
+  const btnClear = document.getElementById("btn-clear-refs") as HTMLButtonElement;
   const previewContainer = document.getElementById("ref-preview-content") as HTMLElement;
   const codeContainer = document.getElementById("ref-code-container") as HTMLTextAreaElement;
   const btnCopyHtml = document.getElementById("btn-copy-ref-html") as HTMLButtonElement;
+  const btnDownloadHtml = document.getElementById("btn-download-ref-html") as HTMLButtonElement;
 
   const btnViewPreview = document.getElementById("btn-ref-view-preview") as HTMLButtonElement;
   const btnViewCode = document.getElementById("btn-ref-view-code") as HTMLButtonElement;
-
-  let formattedHtml = "";
-
   const previewWrapper = document.getElementById("ref-preview-wrapper") as HTMLElement;
 
+  let formattedHtml = "";
+  let currentFileName = "";
+
+  const emptyPreviewPlaceholder = `<div style="color: var(--text-tertiary); font-style: italic; text-align: center; margin-top: 5rem;">Formatted reference list will render here.</div>`;
+
+  const setBadge = (text: string, isSuccess: boolean = false) => {
+    if (!statusBadge) return;
+    statusBadge.textContent = text;
+    statusBadge.classList.toggle("success", isSuccess);
+  };
+
+  const renderOutput = (html: string, count?: number, sourceLabel?: string) => {
+    formattedHtml = html;
+    previewContainer.innerHTML = html || emptyPreviewPlaceholder;
+    codeContainer.value = html;
+    if (html && typeof count === "number") {
+      const label = `${count} citation${count === 1 ? "" : "s"}${sourceLabel ? ` (${sourceLabel})` : ""}`;
+      setBadge(label, true);
+    } else if (!html) {
+      setBadge("Ready", false);
+    }
+  };
+
+  const countListItems = (html: string): number => {
+    return (html.match(/<li\b/gi) || []).length;
+  };
+
+  const formatFromTextarea = (notify: boolean = true, sourceLabel?: string) => {
+    const raw = refInput.value.trim();
+    if (!raw) {
+      if (notify) showToast("Please upload a .docx file or paste references to format", true);
+      return;
+    }
+    const html = formatReferences(raw, { includeHeading: Boolean(optHeading?.checked) });
+    const count = countListItems(html);
+    renderOutput(html, count, sourceLabel);
+    if (notify) {
+      showToast(`Formatted ${count} reference${count === 1 ? "" : "s"}!`);
+    }
+  };
+
+  const processRefDocxFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      showToast("Please provide a Word .docx file", true);
+      return;
+    }
+
+    try {
+      setBadge("Extracting...", false);
+      const extracted = await extractReferencesFromDocx(file, {
+        includeHeading: Boolean(optHeading?.checked),
+      });
+
+      currentFileName = file.name;
+      if (fileNameDisplay) fileNameDisplay.textContent = file.name;
+
+      if (extracted.count === 0) {
+        setBadge("No Citations Found", false);
+        showToast("No references found in this Word document", true);
+        return;
+      }
+
+      refInput.value = extracted.formattedCitations
+        .map((c) => citationHtmlToEditableText(c))
+        .join("\n\n");
+
+      const sectionNote = extracted.foundHeading ? "References section" : "Word doc";
+      renderOutput(extracted.html, extracted.count, sectionNote);
+      showToast(
+        `Extracted & formatted ${extracted.count} reference${extracted.count === 1 ? "" : "s"} from ${file.name}!`
+      );
+    } catch (err: any) {
+      console.error(err);
+      setBadge("Error", false);
+      showToast(err?.message || "Failed to read references from .docx file", true);
+    }
+  };
+
+  // Word .docx Upload & Drag-and-Drop
+  dropzone?.addEventListener("click", () => fileInput?.click());
+
+  fileInput?.addEventListener("change", (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files[0]) {
+      void processRefDocxFile(target.files[0]);
+      target.value = "";
+    }
+  });
+
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropzone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((evt) => {
+    dropzone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    });
+  });
+
+  dropzone?.addEventListener("drop", (e: DragEvent) => {
+    if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
+      void processRefDocxFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  // Paste from Word Card
+  pasteDropzone?.addEventListener("click", () => {
+    refInput?.focus();
+    showToast("Paste references from Word now (Cmd+V or Ctrl+V)!");
+  });
+
+  pasteDropzone?.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      refInput?.focus();
+      showToast("Paste references from Word now (Cmd+V or Ctrl+V)!");
+    }
+  });
+
+  // Rich Word / Docs / Plain-Text Clipboard Interceptor (scoped to Reference Formatter view)
+  document.addEventListener("paste", (e: ClipboardEvent) => {
+    if (!refView || !refView.classList.contains("active")) return;
+    if (document.activeElement === codeContainer) return;
+
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+
+    // 1. Check if user copied & pasted a .docx file directly
+    if (clipboard.files && clipboard.files.length > 0) {
+      const docxFile = Array.from(clipboard.files).find((f) => f.name.toLowerCase().endsWith(".docx"));
+      if (docxFile) {
+        e.preventDefault();
+        void processRefDocxFile(docxFile);
+        return;
+      }
+    }
+
+    const htmlData = clipboard.getData("text/html") || "";
+    const plainData = clipboard.getData("text/plain") || "";
+
+    const isEditingInsidePopulatedTextarea =
+      document.activeElement === refInput &&
+      refInput.value.trim().length > 0 &&
+      !(refInput.selectionStart === 0 && refInput.selectionEnd === refInput.value.length);
+
+    // 2. Rich HTML paste (Microsoft Word, Google Docs, Apple Pages, Zotero, Web)
+    if (htmlData.trim()) {
+      const citations = parseWordClipboardHtmlToCitations(htmlData);
+      if (citations.length > 0) {
+        e.preventDefault();
+        const formattedCitations = citations.map((c) => formatReferenceCitation(c));
+        const editableItems = formattedCitations.map((c) => citationHtmlToEditableText(c));
+
+        if (isEditingInsidePopulatedTextarea) {
+          const start = refInput.selectionStart ?? refInput.value.length;
+          const end = refInput.selectionEnd ?? refInput.value.length;
+          const before = refInput.value.slice(0, start);
+          const after = refInput.value.slice(end);
+          const inserted = editableItems.join("\n\n");
+          const needLeadingBreak = before.length > 0 && !/\n\s*$/.test(before) && citations.length > 1 ? "\n\n" : "";
+          const needTrailingBreak = after.length > 0 && !/^\s*\n/.test(after) && citations.length > 1 ? "\n\n" : "";
+          const nextValue = `${before}${needLeadingBreak}${inserted}${needTrailingBreak}${after}`;
+          refInput.value = nextValue;
+          const cursorPos = before.length + needLeadingBreak.length + inserted.length;
+          refInput.setSelectionRange(cursorPos, cursorPos);
+          formatFromTextarea(false, "Word paste");
+          showToast(
+            `Inserted & formatted ${citations.length} reference${citations.length === 1 ? "" : "s"} from clipboard!`
+          );
+          return;
+        }
+
+        currentFileName = "";
+        if (fileNameDisplay) fileNameDisplay.textContent = "Drag & drop article or references .docx";
+        refInput.value = editableItems.join("\n\n");
+        const html = formatCitationHtmlArray(citations, {
+          includeHeading: Boolean(optHeading?.checked),
+        });
+        renderOutput(html, citations.length, "Word paste");
+        showToast(
+          `Pasted & formatted ${citations.length} reference${citations.length === 1 ? "" : "s"} with italics preserved!`
+        );
+        return;
+      }
+    }
+
+    // 3. Plain-text paste fallback (when pasting onto dropzone or into empty textarea)
+    if (plainData.trim() && !isEditingInsidePopulatedTextarea) {
+      e.preventDefault();
+      currentFileName = "";
+      if (fileNameDisplay) fileNameDisplay.textContent = "Drag & drop article or references .docx";
+      refInput.value = plainData.trim();
+      formatFromTextarea(true, "Pasted");
+    }
+  });
+
+  // Preview / Clean HTML Tab Switcher
   btnViewPreview?.addEventListener("click", () => {
     btnViewPreview.classList.add("active");
     btnViewCode.classList.remove("active");
@@ -260,27 +477,35 @@ function initReferenceFormatterController() {
     codeContainer.style.display = "block";
   });
 
+  // Heading toggle updates output live if references are already present
+  optHeading?.addEventListener("change", () => {
+    if (refInput.value.trim()) {
+      formatFromTextarea(false);
+    }
+  });
 
   btnLoadSample?.addEventListener("click", () => {
-    refInput.value = `1. Adams, J. (2020). Performance practice in contemporary brass literature. Journal of Music Research, 45(2), 112–128. https://doi.org/10.1080/01411896.2020.1234567
+    currentFileName = "";
+    if (fileNameDisplay) fileNameDisplay.textContent = "Drag & drop article or references .docx";
+    refInput.value = `1. Adams, J. (2020). Performance practice in contemporary brass literature. *Journal of Music Research*, 45(2), 112–128. https://doi.org/10.1080/01411896.2020.1234567
 
-2. Davis, M. K. (2021). Modal improvisation in early modern jazz pedagogy. Jazz Education Network Journal, 14, 30–48. doi: 10.1111/jenj.12004
+2. Davis, M. K. (2021). Modal improvisation in early modern jazz pedagogy. Jazz Education Network Journal, 14(3), 30–48. doi: 10.1111/jenj.12004
 
-3. Miller, R. (2016). Structure and Style in Vocal Pedagogy. New York: Schirmer.`;
-    showToast("Sample references loaded!");
+3. Caplin, William E. *Classical Form: A Theory of Formal Functions for the Instrumental Music of Haydn, Mozart, and Beethoven*. New York: Oxford University Press, 1998.`;
+    formatFromTextarea(false, "Sample");
+    showToast("Sample references loaded & formatted!");
+  });
+
+  btnClear?.addEventListener("click", () => {
+    currentFileName = "";
+    if (fileNameDisplay) fileNameDisplay.textContent = "Drag & drop article or references .docx";
+    refInput.value = "";
+    renderOutput("");
+    showToast("References cleared");
   });
 
   btnFormat?.addEventListener("click", () => {
-    const raw = refInput.value.trim();
-    if (!raw) {
-      showToast("Please enter references to format", true);
-      return;
-    }
-
-    formattedHtml = formatReferences(raw);
-    previewContainer.innerHTML = formattedHtml;
-    codeContainer.value = formattedHtml;
-    showToast("References formatted!");
+    formatFromTextarea(true);
   });
 
   btnCopyHtml?.addEventListener("click", async () => {
@@ -290,6 +515,21 @@ function initReferenceFormatterController() {
     }
     await navigator.clipboard.writeText(formattedHtml);
     showToast("Reference HTML copied!");
+  });
+
+  btnDownloadHtml?.addEventListener("click", () => {
+    if (!formattedHtml) {
+      showToast("Nothing to download", true);
+      return;
+    }
+    const blob = new Blob([formattedHtml + "\n"], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (currentFileName ? currentFileName.replace(/\.docx$/i, "") + "_references" : "symposium_references") + ".html";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Reference HTML downloaded!");
   });
 }
 
