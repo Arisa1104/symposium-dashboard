@@ -12,15 +12,21 @@ const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
 const REFERENCE_HEADINGS = new Set([
   "references",
+  "reference list",
   "works cited",
   "work cited",
   "bibliography",
   "selected bibliography",
   "sources cited",
+  "literature cited",
 ]);
 
+export type ReferenceStyle = "apa" | "chicago-nb" | "chicago-ad";
+export type DetectedStyleSummary = ReferenceStyle | "mixed";
+
 const APA_YEAR_RE = /\((?:\d{4}[a-z]?(?:[–/-]\d{2,4})?(?:,\s*[A-Za-z0-9 .–/-]+)?|n\.d\.|in press|forthcoming|ca\.\s*\d{4})\)/i;
-const CHICAGO_AUTHOR_DATE_RE = /^([\s\S]{2,400}?)\.\s+((?:1[5-9]\d{2}|20\d{2})[a-z]?|n\.d\.|forthcoming|in press)\.\s+([\s\S]+)$/i;
+const CHICAGO_AUTHOR_DATE_RE =
+  /^([\s\S]{1,360}?)\.\s+((?:\[\d{4}\]\s*)?(?:1[5-9]\d{2}|20\d{2})[a-z]?(?:[–/-]\d{2,4})?|n\.d\.|forthcoming|in press)\.\s+([\s\S]+)$/i;
 const BIB_YEAR_RE = /\b(?:1[5-9]\d{2}|20\d{2}|n\.d\.)\b/i;
 const TAG_RE = /<[^>]+>/g;
 const BARE_URL_RE = /https?:\/\/(?:(?!https?:\/\/|doi:\s*10\.)[^\s<>"'])+/gi;
@@ -369,6 +375,9 @@ function normalizeCitationLinks(citationHtml: string): string {
   }
   val = rebuilt.join("");
 
+  // Escape any bare '&' not already part of an HTML character entity
+  val = val.replace(/&(?!(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);)/g, "&amp;");
+
   // Append any DOI recovered from prose hyperlinks if not already present
   for (const d of deferredDois) {
     if (!val.toLowerCase().includes(d.toLowerCase())) {
@@ -420,17 +429,43 @@ interface ParsedJournalParts {
   italicVolume: boolean;
 }
 
+const PUBLISHER_NAME_RE =
+  /\b(?:university\s+press|press|publishers?|publishing|books|routledge|springer|wiley|sage|elsevier|macmillan|palgrave|schirmer|norton|bärenreiter|barenreiter|breitkopf|schott|boosey|ricordi|henle|dover|penguin|harpercollins|random\s+house|simon\s*(?:&|and)\s*schuster|bloomsbury|ashgate|boydell|peter\s+lang|brill|de\s+gruyter|mouton|lexington|rowman|scarecrow|pendragon|harmonie\s+park|a-r\s+editions|hal\s+leonard|carl\s+fischer|alfred\s+music|gia\s+publications|meredith\s+music)\b/i;
+
+const PERIODICAL_WORD_RE =
+  /\b(?:journal|review|quarterly|symposium|annals|bulletin|proceedings|transactions|magazine|gazette|times|post|herald|tribune|chronicle|perspectives|yearbook|digest|educator|psychomusicology|ethnomusicology|musicology)\b/i;
+
 function isLikelyPublisherOrThesis(plainJournalCandidate: string): boolean {
-  const lower = plainJournalCandidate.toLowerCase().trim();
+  const trimmed = plainJournalCandidate.trim();
+  const lower = trimmed.toLowerCase();
   if (!lower) return true;
   if (
-    /^(?:in\s+|retrieved\s+|available\s+|accessed\s+|unpublished\s+|paper\s+presented|doctoral\s+dissertation|master['’]s\s+thesis|phd\s+diss)/.test(
+    /^(?:in\s+|edited\s+by\b|ed\.\s+by\b|translated\s+by\b|trans\.\s+by\b|compiled\s+by\b|revised\s+by\b|vol(?:s|ume)?\.\s*\d|retrieved\s+|available\s+|accessed\s+|unpublished\s+|paper\s+presented|doctoral\s+dissertation|master['’]s\s+thesis|phd\s+diss|d\.?m\.?a\.?\s+diss|reprint\b)/.test(
       lower
     )
   ) {
     return true;
   }
-  if (/^[a-z .,'-]+:\s+/i.test(plainJournalCandidate) && /\b(?:press|publishers?|publishing|books|schirmer|norton|routledge|oxford|cambridge)\b/i.test(lower)) {
+  // Place: Publisher (e.g., "New York: W. W. Norton", "Mainz: Schott", "Cambridge, MA: Harvard University Press")
+  if (/^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ .,'’-]{1,45}:\s+[A-ZÀ-ÖØ-Þ]/.test(trimmed) && !PERIODICAL_WORD_RE.test(lower)) {
+    return true;
+  }
+  // Standalone Publisher in CMOS 18th ed. / APA 7th ed. without city (e.g., "Oxford University Press, 1998")
+  if (PUBLISHER_NAME_RE.test(lower) && !PERIODICAL_WORD_RE.test(lower)) {
+    return true;
+  }
+  return false;
+}
+
+function isNonJournalBibliographySource(plainSource: string, rawSourceHtml: string): boolean {
+  const trimmedPlain = plainSource.trim();
+  if (!trimmedPlain) return true;
+  if (isLikelyPublisherOrThesis(trimmedPlain)) return true;
+
+  const trimmedHtml = rawSourceHtml.trimStart();
+  // If <em> appears in the source clause, it can only be a journal title if it starts at the beginning of the clause
+  // (as opposed to "Vol. 2 of <em>The Oxford History...</em>" or "Series, <em>Subseries</em>")
+  if (/<em>/i.test(trimmedHtml) && !/^<em>/i.test(trimmedHtml)) {
     return true;
   }
   return false;
@@ -438,11 +473,12 @@ function isLikelyPublisherOrThesis(plainJournalCandidate: string): boolean {
 
 /**
  * Separates a journal title that has no space before its volume number (e.g.,
- * `<em>Journal of Music Theory Pedagogy</em>18: 23–51` or `Journal of Music Theory Pedagogy18: 23–51`).
+ * `<em>Journal of Music Theory Pedagogy</em>18: 23–51` or `Journal of Music Theory Pedagogy18: 23–51`),
+ * while NEVER inserting a space inside `<em>45</em>(2)` (italicized APA volume + issue).
  */
 function separateGluedJournalVolume(sourceHtml: string): string {
-  // 1. Closing </em> glued directly to a digit, vol., no., or parenthesized issue/year
-  let val = sourceHtml.replace(/<\/em>(?=(?:\d|vol\.\b|no\.\b|\())/gi, "</em> ");
+  // 1. Closing </em> at the end of a title word glued directly to a digit, vol., no., or parenthesized year/issue
+  let val = sourceHtml.replace(/([A-Za-z.?!’'”"])<\/em>(?=(?:\d|vol\.\b|no\.\b|\())/gi, "$1</em> ");
 
   // 2. Plain text word (>= 3 letters ending in lowercase) glued directly to volume + issue/colon/pages
   const parts = val.split(/(<[^>]+>)/g);
@@ -458,28 +494,63 @@ function separateGluedJournalVolume(sourceHtml: string): string {
 }
 
 /**
- * Attempts to parse an APA / hybrid periodical source clause into journal, volume, issue, and pages.
- * Handles both italicized and unitalicized journal titles, optional issue numbers, and online-only
- * journals without page numbers (e.g., College Music Symposium, 62(1)).
+ * Detects whether a periodical clause uses Chicago / MLA conventions (e.g., `, no. 2`, `vol. 45`,
+ * `pp. 112–128`, colon before pages `: 112–128`, or uncomma'd `*Journal* 45 (2)`) rather than APA.
+ */
+function hasChicagoPeriodicalSyntax(sourceWithoutLinks: string): boolean {
+  const separated = separateGluedJournalVolume(sourceWithoutLinks).trim();
+  const plain = htmlToPlain(separated).replace(/\.+$/, "").trim();
+  if (!plain || isLikelyPublisherOrThesis(plain)) return false;
+
+  if (/\b(?:no|vol)\.\s*[0-9A-Za-z]/i.test(plain)) return true;
+  if (/(?:,|:)\s*pp?\.\s*\d/i.test(plain)) return true;
+  // Colon page separator after volume, issue, or parenthesized year (e.g., "45 (2): 112–128", "18: 23–51", "45 (2020): 112–128")
+  if (/(?:\d[A-Za-z]?|\))\s*:\s*(?:pp?\.\s*)?(?:[A-Za-z]?\d+|e\d+|article\s+\w+)/i.test(plain)) return true;
+  // Uncomma'd journal + roman volume + spaced parenthesized issue/year (e.g., "<em>College Music Symposium</em> 63 (1)")
+  if (/^<em>[\s\S]*?<\/em>\s+\d{1,4}[A-Za-z]?\s+\([^)]+\)$/.test(separated)) return true;
+
+  return false;
+}
+
+function looksLikeUnitalicizedChicagoJournal(sourceWithoutLinks: string): boolean {
+  const plain = separateGluedJournalVolume(htmlToPlain(sourceWithoutLinks)).replace(/\.+$/, "").trim();
+  if (!plain || isLikelyPublisherOrThesis(plain)) return false;
+  const m = plain.match(
+    /^([A-Z0-9][A-Za-z0-9 &/'’‘“-]{1,120}?)(?:\s*,\s*(?:vol\.\s*)?(?=\d)|\s+(?=(?:vol\.\s*)?\d))((?:vol\.\s*)?\d{1,4}[A-Za-z]?[\s\S]*)$/i
+  );
+  if (!m) return false;
+  const jName = m[1].trim().replace(/,+$/, "").trim();
+  const volAndTail = m[2].trim();
+  if (/^(?:vol|vols|ed|eds|trans|rev|no)\.?$/i.test(jName) || isLikelyPublisherOrThesis(jName)) return false;
+  return /^(?:vol\.\s*)?\d{1,4}[A-Za-z]?\s*(?:,\s*no\.\s*[0-9A-Za-z–/-]+|\([^)]+\)\s*:\s*\S+|\s*:\s*[A-Za-z]?\d)/i.test(
+    volAndTail
+  );
+}
+
+/**
+ * Parses a genuine APA comma-style periodical source clause into journal, volume, issue, and pages.
+ * Never matches Chicago/MLA periodical clauses (those are preserved via spanBibliographyJournalSource).
  */
 function parseApaJournalParts(sourceWithoutLinks: string): ParsedJournalParts | null {
   const separated = separateGluedJournalVolume(sourceWithoutLinks);
   const trimmed = separated.trim().replace(/\.+$/, "").trim();
   if (!trimmed) return null;
 
+  if (hasChicagoPeriodicalSyntax(trimmed)) return null;
+
   const hasLeadingEm = /^<em>/i.test(trimmed);
   const plain = htmlToPlain(trimmed).replace(/\.+$/, "").trim();
   if (!plain || isLikelyPublisherOrThesis(plain)) return null;
 
-  // Pattern 1: Journal, [vol.] 45[(2)], [pp.] 112–128  OR  Journal 45(2), 112–128 / Journal 45(2): 112–128
+  // Pattern 1 (APA): Journal, 45[(2)], 112–128
   const withPages = plain.match(
-    /^(.+?)(?:,\s*(?:vol\.\s*)?|\s+)(\d{1,4}[A-Za-z]?(?:[–-]\d{1,4})?)\s*(?:,\s*no\.\s*([0-9A-Za-z–/-]+)|(\([^)]+\)))?\s*(?:,|:)\s*(?:pp?\.\s*)?([A-Za-z0-9–\-.,; ()]+)$/i
+    /^(.+?)(?:,\s*|\s+)(\d{1,4}[A-Za-z]?(?:[–-]\d{1,4})?)\s*(\([^)]+\))?\s*,\s*([A-Za-z0-9–\-.,; ()]+)$/i
   );
   if (withPages) {
     const journal = withPages[1].trim().replace(/,+$/, "").trim();
     const volume = withPages[2].trim();
-    const issueRaw = (withPages[3] ? `(${withPages[3].trim()})` : withPages[4] || "").trim();
-    const pages = withPages[5].trim().replace(/^[ ,.]+|[ ,.]+$/g, "");
+    const issueRaw = (withPages[3] || "").trim();
+    const pages = withPages[4].trim().replace(/^[ ,.]+|[ ,.]+$/g, "");
 
     // Guard against matching "Publisher, 2020" if there is no issue and "volume" is a 4-digit year without page range
     const volIsYear = /^(?:1[89]\d{2}|20\d{2})$/.test(volume);
@@ -495,14 +566,14 @@ function parseApaJournalParts(sourceWithoutLinks: string): ParsedJournalParts | 
     }
   }
 
-  // Pattern 2: Online journal with volume + issue and NO page numbers (e.g., "College Music Symposium, 62(1)")
+  // Pattern 2 (APA online journal without pages): "College Music Symposium, 62(1)"
   const volIssueOnly = plain.match(
-    /^(.+?)(?:,\s*(?:vol\.\s*)?|\s+)(\d{1,4}[A-Za-z]?)\s*(?:,\s*no\.\s*([0-9A-Za-z–/-]+)|(\([^)]+\)))$/i
+    /^(.+?)(?:,\s*|\s+)(\d{1,4}[A-Za-z]?)\s*(\([^)]+\))$/i
   );
   if (volIssueOnly) {
     const journal = volIssueOnly[1].trim().replace(/,+$/, "").trim();
     const volume = volIssueOnly[2].trim();
-    const issueRaw = (volIssueOnly[3] ? `(${volIssueOnly[3].trim()})` : volIssueOnly[4] || "").trim();
+    const issueRaw = (volIssueOnly[3] || "").trim();
     if (!isLikelyPublisherOrThesis(journal) && issueRaw && !BIB_YEAR_RE.test(issueRaw)) {
       return {
         journalHtml: htmlText(journal),
@@ -514,9 +585,9 @@ function parseApaJournalParts(sourceWithoutLinks: string): ParsedJournalParts | 
     }
   }
 
-  // Pattern 3: Leading <em> journal with volume only and no pages (e.g., "<em>College Music Symposium</em>, 62")
+  // Pattern 3: Leading <em> journal with comma + volume only and no pages (e.g., "<em>College Music Symposium</em>, 62")
   if (hasLeadingEm) {
-    const volOnly = plain.match(/^(.+?)(?:,\s*|\s+)(\d{1,3}[A-Za-z]?)$/);
+    const volOnly = plain.match(/^(.+?),\s*(\d{1,3}[A-Za-z]?)$/);
     if (volOnly && !isLikelyPublisherOrThesis(volOnly[1])) {
       return {
         journalHtml: htmlText(volOnly[1].trim().replace(/,+$/, "")),
@@ -555,31 +626,36 @@ function formatReferenceSource(sourceHtml: string): string {
   let rendered = mainSource;
 
   if (!isBookChapterOrRetrievalOnly) {
-    const parsed = parseApaJournalParts(mainSource);
-    if (parsed) {
-      let r = `<span class="journal"><em>${parsed.journalHtml}</em></span>`;
-      if (parsed.volume) {
-        const volInner = parsed.italicVolume ? `<em>${htmlText(parsed.volume)}</em>` : htmlText(parsed.volume);
-        r += `, <span class="volume">${volInner}</span>`;
-      }
-      if (parsed.issue) {
-        // NEVER insert a space between volume and parenthesized issue number: e.g., 45(2)
-        r += parsed.volume
-          ? `<span class="issue">${htmlText(parsed.issue)}</span>`
-          : `, <span class="issue">${htmlText(parsed.issue)}</span>`;
-      }
-      if (parsed.pagesHtml) {
-        r += `, <span class="pages">${parsed.pagesHtml}</span>`;
-      }
-      rendered = `${r}.`;
-    } else if (/^<em>[\s\S]+<\/em>\.?$/i.test(mainSource.trim()) && (mainSource.match(/<em>/gi) || []).length === 1) {
-      // Pure italicized journal name (e.g., online journal without volume/pages)
-      rendered = `<span class="journal"><em>${htmlText(plain.replace(/[,.\s]+$/, ""))}</em></span>.`;
-    } else if (/^<em>/i.test(mainSource.trim())) {
-      // Leading <em> followed by Chicago-style issue/date or status text (e.g., ". Advance online publication")
+    if (hasChicagoPeriodicalSyntax(mainSource)) {
+      // Preserve Chicago/MLA periodical formatting when used inside an author-(year) citation
       rendered = ensureTerminalPeriod(spanBibliographyJournalSource(mainSource.trim(), true));
     } else {
-      rendered = ensureTerminalPeriod(mainSource);
+      const parsed = parseApaJournalParts(mainSource);
+      if (parsed) {
+        let r = `<span class="journal"><em>${parsed.journalHtml}</em></span>`;
+        if (parsed.volume) {
+          const volInner = parsed.italicVolume ? `<em>${htmlText(parsed.volume)}</em>` : htmlText(parsed.volume);
+          r += `, <span class="volume">${volInner}</span>`;
+        }
+        if (parsed.issue) {
+          // In APA, no space between volume and parenthesized issue number: e.g., 45(2)
+          r += parsed.volume
+            ? `<span class="issue">${htmlText(parsed.issue)}</span>`
+            : `, <span class="issue">${htmlText(parsed.issue)}</span>`;
+        }
+        if (parsed.pagesHtml) {
+          r += `, <span class="pages">${parsed.pagesHtml}</span>`;
+        }
+        rendered = `${r}.`;
+      } else if (/^<em>[\s\S]+<\/em>\.?$/i.test(mainSource.trim()) && (mainSource.match(/<em>/gi) || []).length === 1) {
+        // Pure italicized journal name (e.g., online journal without volume/pages)
+        rendered = `<span class="journal"><em>${htmlText(plain.replace(/[,.\s]+$/, ""))}</em></span>.`;
+      } else if (/^<em>/i.test(mainSource.trim())) {
+        // Leading <em> followed by status/issue text (e.g., ". Advance online publication")
+        rendered = ensureTerminalPeriod(spanBibliographyJournalSource(mainSource.trim(), true));
+      } else {
+        rendered = ensureTerminalPeriod(mainSource);
+      }
     }
   } else {
     rendered = ensureTerminalPeriod(mainSource);
@@ -611,17 +687,6 @@ function splitReferenceYear(value: string): [string, string, string] | null {
   ];
 }
 
-function isApaYearSplit(split: [string, string, string]): boolean {
-  const [beforeYear, , remainder] = split;
-  const plain = htmlToPlain(beforeYear).trim();
-  if (!plain || plain.length > 800) return false;
-  if (/[“"‘]|<em>|<\/em>/i.test(beforeYear)) return false;
-  // Exclude Chicago journal citations like "Author. Title. Journal 64, no. 2 (2020): 145–180"
-  if (/^:/.test(remainder.trim())) return false;
-  if (/\b\d{1,4}(?:\s*,\s*no\.\s*[\w–-]+)?\s*$/i.test(plain)) return false;
-  return true;
-}
-
 function consumeLeadingEmSequence(value: string): [string, string] {
   const titleParts: string[] = [];
   let remaining = value.trimStart();
@@ -644,7 +709,7 @@ function consumeLeadingEmSequence(value: string): [string, string] {
 
 const TITLE_ABBREV_WORDS = new Set([
   "jr", "sr", "ed", "eds", "vol", "vols", "no", "nos", "op", "bwv", "hob",
-  "ca", "vs", "etc", "al", "p", "pp", "trans", "rev", "comp", "dr", "mr", "mrs", "ms", "st", "fig", "no"
+  "ca", "vs", "etc", "al", "p", "pp", "trans", "rev", "comp", "dr", "mr", "mrs", "ms", "st", "fig"
 ]);
 
 /**
@@ -698,16 +763,20 @@ function findTopLevelSentenceSplits(html: string): Array<{ titlePart: string; re
       if (!restPart) continue;
 
       // Check word right before `.` to avoid splitting on initials ("J. S. Bach") or "Op. 12"
+      // Note: a period right after `)` or `]` (e.g., "(2nd ed.).") is always a true sentence-ending period!
       if (ch === ".") {
         const beforePlain = htmlToPlain(html.slice(0, i)).trim();
-        const lastToken = (beforePlain.split(/\s+/).pop() || "").replace(/^[^A-Za-z]+|[^A-Za-z.]+$/g, "");
-        const lastLower = lastToken.toLowerCase().replace(/\./g, "");
-        const restStartsWithSource = /^<em>/i.test(restPart) || /^In\b/.test(restPart);
+        const prevChar = beforePlain.slice(-1);
+        if (prevChar !== ")" && prevChar !== "]") {
+          const lastToken = (beforePlain.split(/\s+/).pop() || "").replace(/^[^A-Za-z]+|[^A-Za-z.]+$/g, "");
+          const lastLower = lastToken.toLowerCase().replace(/\./g, "");
+          const restStartsWithSource = /^<em>/i.test(restPart) || /^In\b/.test(restPart);
 
-        if (!restStartsWithSource) {
-          if (lastToken.length === 1 && /^[A-Z]$/.test(lastToken)) continue;
-          if (TITLE_ABBREV_WORDS.has(lastLower)) continue;
-          if (/^(?:[A-Z]\.){1,3}[A-Z]$/.test(lastToken)) continue; // e.g., U.S.
+          if (!restStartsWithSource) {
+            if (lastToken.length === 1 && /^[A-Z]$/.test(lastToken)) continue;
+            if (TITLE_ABBREV_WORDS.has(lastLower)) continue;
+            if (/^(?:[A-Z]\.){1,3}[A-Z]$/.test(lastToken)) continue; // e.g., U.S.
+          }
         }
       }
 
@@ -721,10 +790,55 @@ function findTopLevelSentenceSplits(html: string): Array<{ titlePart: string; re
   return results;
 }
 
+function isLikelyLifeSpanYearToken(yearToken: string): boolean {
+  const m = yearToken.match(/^\((\d{4})\s*[–/-]\s*(\d{2,4})\)$/);
+  if (!m) return false;
+  const start = parseInt(m[1], 10);
+  let end = parseInt(m[2], 10);
+  if (m[2].length === 2) {
+    end = Math.floor(start / 100) * 100 + end;
+  }
+  // Multi-decade historical ranges like "(1770–1827)" are birth–death dates, not publication years
+  return start < 1950 && end - start >= 18;
+}
+
+function isAuthorParenYearSplit(split: [string, string, string], styleHint?: ReferenceStyle): boolean {
+  const [beforeYear, yearToken, remainder] = split;
+  const plain = htmlToPlain(beforeYear).trim();
+  if (!plain || plain.length > 500) return false;
+  if (/[“"‘]|<em>|<\/em>/i.test(beforeYear)) return false;
+
+  const remTrimmed = remainder.trim();
+  if (!remTrimmed || /^[,;:)\]]/.test(remTrimmed)) return false;
+  if (/\b(?:\d{1,4}|vol\.|no\.)(?:\s*,\s*no\.\s*[\w–-]+)?\s*$/i.test(plain)) return false;
+
+  // Exclude composer birth–death dates like "Beethoven, Ludwig van (1770–1827). Letters..."
+  if (isLikelyLifeSpanYearToken(yearToken)) return false;
+
+  // Exclude Chicago entries where `beforeYear` already contains "Author. Title" before a later `(Year)`
+  const authorCheck = beforeYear.replace(/\(\s*Eds?\.\s*\)\.?\s*$/i, "").trim();
+  if (findTopLevelSentenceSplits(authorCheck).length > 0) return false;
+
+  // If the manuscript is Chicago Notes & Bibliography and remainder ends with "Publisher, YYYY.", `(Year)` is not APA
+  const remPlain = htmlToPlain(remTrimmed);
+  if (styleHint === "chicago-nb" && /,\s*(?:1[5-9]\d{2}|20\d{2})\.?\s*$/.test(remPlain) && !/&/.test(plain)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isValidChicagoAuthorDateMatch(cadMatch: RegExpMatchArray): boolean {
+  const authorPart = cadMatch[1].trim();
+  if (!authorPart || /[“"‘]|<em>|<\/em>/i.test(authorPart)) return false;
+  if (findTopLevelSentenceSplits(authorPart).length > 0) return false;
+  return true;
+}
+
 /**
- * Splits everything after `(Year).` in an APA citation into `[titleHtml, sourceHtml]`.
+ * Splits everything after `(Year).` into `[titleHtml, sourceHtml]`.
  * Preserves inline `<em>` inside article titles (e.g. musical work titles or foreign terms)
- * while still accurately isolating journal titles (italicized or unitalicized), book chapters, and publishers.
+ * while isolating journal titles (italicized or unitalicized), book chapters, and publishers.
  */
 function splitApaTitleAndSource(cleanedRem: string): [string, string] {
   const [withoutTrailingLinks, trailingLinks] = extractTrailingLinks(cleanedRem);
@@ -744,7 +858,11 @@ function splitApaTitleAndSource(cleanedRem: string): [string, string] {
     if (/^In\b/.test(sp.restPart)) {
       return [sp.titlePart, attachLinks(sp.restPart)];
     }
-    if (/^<em>/i.test(sp.restPart) || parseApaJournalParts(sp.restPart) !== null) {
+    if (
+      /^<em>/i.test(sp.restPart) ||
+      parseApaJournalParts(sp.restPart) !== null ||
+      looksLikeUnitalicizedChicagoJournal(sp.restPart)
+    ) {
       return [sp.titlePart, attachLinks(sp.restPart)];
     }
   }
@@ -818,13 +936,54 @@ function splitBibliographyAuthor(value: string): [string, string] {
   return ["", trimmed];
 }
 
+function findMatchingClosingQuote(v: string, openQuote: string): { index: number; closeQuote: string } | null {
+  if (openQuote === "“") {
+    let depth = 1;
+    let inTag = false;
+    for (let i = 1; i < v.length; i++) {
+      const ch = v[i];
+      if (ch === "<") inTag = true;
+      else if (ch === ">") inTag = false;
+      else if (!inTag) {
+        if (ch === "“") depth++;
+        else if (ch === "”") {
+          depth--;
+          if (depth === 0) return { index: i, closeQuote: "”" };
+        } else if (ch === '"' && depth === 1) {
+          // Handle mixed curly opening quote + straight closing quote at sentence/clause end
+          const after = v.slice(i + 1);
+          if (!after || /^[\s.,;:)!\]]/.test(after)) {
+            return { index: i, closeQuote: "”" };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Straight double quote `"`
+  let inTag = false;
+  for (let i = 1; i < v.length; i++) {
+    const ch = v[i];
+    if (ch === "<") inTag = true;
+    else if (ch === ">") inTag = false;
+    else if (!inTag && (ch === '"' || ch === "”")) {
+      const after = v.slice(i + 1);
+      if (!after || /^[\s.,;:)!\]]/.test(after) || /^<\/em>/i.test(after)) {
+        return { index: i, closeQuote: ch === "”" ? "”" : '"' };
+      }
+    }
+  }
+  return null;
+}
+
 function extractQuotedTitle(value: string): [string, string, string, string] | null {
   const v = value.trimStart();
   const openQuote = v[0];
   if (openQuote !== '"' && openQuote !== "“") return null;
-  const closeQuote = openQuote === "“" ? "”" : '"';
-  const closeIndex = v.indexOf(closeQuote, 1);
-  if (closeIndex < 0) return null;
+  const found = findMatchingClosingQuote(v, openQuote);
+  if (!found) return null;
+  const { index: closeIndex, closeQuote } = found;
   let title = v.slice(1, closeIndex).trim();
   let rest = v.slice(closeIndex + 1).trim();
   // If the author placed a period or comma outside the closing quote (“Title”. Journal...), normalize cleanly
@@ -874,21 +1033,36 @@ function spanYearsInText(value: string): string {
   return parts.join("");
 }
 
-function spanBibliographyJournalSource(value: string, afterQuotedArticleTitle: boolean = false): string {
+/**
+ * Wraps semantic spans (`journal`, `volume`, `issue`, `pages`, `year`) around a bibliography/Chicago/MLA
+ * periodical source clause while strictly preserving the original punctuation, volume roman/italic state,
+ * and spacing (e.g., NO comma forced after journal in Chicago `*Journal* 45, no. 2 (2020): 112–128`,
+ * and space preserved in Chicago Author-Date `*Journal* 45 (2): 112–128`).
+ */
+function spanBibliographyJournalSource(value: string, afterArticleTitle: boolean = false): string {
   let val = separateGluedJournalVolume(value.trim());
   if (!val) return val;
 
-  // If the author italicized "Journal Title, 45" or "Journal Title 45" together in one <em>, split the volume out cleanly
+  const plainCheck = htmlToPlain(val).trim();
+  if (isNonJournalBibliographySource(plainCheck, val)) {
+    return val;
+  }
+
+  // If the author italicized "Journal Title, 45" or "Journal Title 45" together in one leading <em>, split volume out
   val = val.replace(
-    /<em>([\s\S]*?[A-Za-z.])(?:\s*,\s*|\s+)(\d{1,4}[A-Za-z]?)<\/em>(?=\s*(?:\([^)]+\)|,\s*no\.\b|;|:|\.|,\s*(?:pp?\.\s*)?\d))/i,
-    (_m, jInner, vol) =>
-      `<span class="journal"><em>${jInner.trim().replace(/,+$/, "").trim()}</em></span>, <span class="volume"><em>${vol}</em></span>`
+    /^<em>([\s\S]*?[A-Za-z.])(\s*,\s*|\s+)(\d{1,4}[A-Za-z]?)<\/em>(?=\s*(?:\([^)]+\)|,\s*no\.\b|;|:|\.|,\s*(?:pp?\.\s*)?\d|$))/i,
+    (fullMatch, jInner, sep, vol) => {
+      const hasComma = sep.includes(",");
+      const nextSlice = val.slice(fullMatch.length);
+      const isChicagoTail = /^\s*(?:,\s*no\.\b|\([^)]*\)\s*:|:)/.test(nextSlice);
+      const volHtml = hasComma && !isChicagoTail ? `<em>${vol}</em>` : vol;
+      return `<span class="journal"><em>${jInner.trim().replace(/,+$/, "").trim()}</em></span>${hasComma ? ", " : " "}<span class="volume">${volHtml}</span>`;
+    }
   );
 
-  // Wrap first <em>...</em> in <span class="journal"> while preserving surrounding spaces & moving any trailing comma outside </em></span>
+  // Wrap leading <em>...</em> in <span class="journal"> while preserving surrounding spaces & moving any trailing comma outside
   if (!val.includes('<span class="journal">')) {
-    val = val.replace(/<em>([\s\S]*?)<\/em>/i, (_match, inner: string) => {
-      const leadWs = inner.match(/^\s*/)?.[0] || "";
+    val = val.replace(/^<em>([\s\S]*?)<\/em>/i, (_match, inner: string) => {
       const trailWs = inner.match(/\s*$/)?.[0] || "";
       let core = inner.trim();
       let hadTrailingComma = false;
@@ -897,163 +1071,209 @@ function spanBibliographyJournalSource(value: string, afterQuotedArticleTitle: b
         hadTrailingComma = true;
       }
       if (!core) return inner;
-      return `${leadWs}<span class="journal"><em>${core}</em></span>${hadTrailingComma ? "," : ""}${trailWs}`;
+      return `<span class="journal"><em>${core}</em></span>${hadTrailingComma ? "," : ""}${trailWs}`;
     });
   }
 
-  // If an unitalicized journal citation follows the article title, detect and italicize the journal title!
-  if (!val.includes('<span class="journal">')) {
-    const [withoutLinks, links] = extractTrailingLinks(val);
-    const plainNoLinks = separateGluedJournalVolume(htmlToPlain(withoutLinks));
+  // If an unitalicized journal citation follows the article title (e.g., plain-text paste), detect and italicize the journal title
+  // while preserving the original comma/space separator!
+  if (!val.includes('<span class="journal">') && !/<em>/i.test(val)) {
+    const plainNoLinks = separateGluedJournalVolume(htmlToPlain(val));
     if (!isLikelyPublisherOrThesis(plainNoLinks)) {
       const chicagoUnitalicized = plainNoLinks.match(
-        /^([A-Z0-9][A-Za-z0-9 &/'’‘“-]{1,120}?)(?:\s*,\s*(?:vol\.\s*)?(?=\d)|\s+(?=(?:vol\.\s*)?\d))((?:vol\.\s*)?\d{1,4}[A-Za-z]?[\s\S]*)$/i
+        /^([A-Z0-9][A-Za-z0-9 &/'’‘“-]{1,120}?)(\s*,\s*(?=(?:vol\.\s*)?\d)|\s+(?=(?:vol\.\s*)?\d))((?:vol\.\s*)?\d{1,4}[A-Za-z]?[\s\S]*)$/i
       );
       if (chicagoUnitalicized) {
         const jName = chicagoUnitalicized[1].trim().replace(/,+$/, "").trim();
-        const volAndTail = chicagoUnitalicized[2].trim();
+        const origSep = chicagoUnitalicized[2].includes(",") ? ", " : " ";
+        const volAndTail = chicagoUnitalicized[3].trim();
         const looksLikeJournalTail =
           /^(?:vol\.\s*)?\d{1,4}[A-Za-z]?\s*(?:,\s*no\.\s*[0-9A-Za-z–/-]+|\([^)]+\)|\s*:\s*[A-Za-z]?\d|,\s*(?:pp?\.\s*\d|\d+\s*[–-]\s*\d+))/i.test(
             volAndTail
           );
         const isEditionOrBookVol = /^(?:vol|vols|ed|eds|trans|rev|no)\.?$/i.test(jName);
-        if (looksLikeJournalTail && !isEditionOrBookVol && !isLikelyPublisherOrThesis(jName)) {
-          val = `<span class="journal"><em>${htmlText(jName)}</em></span>, ${htmlText(volAndTail)}${
-            links.length ? " " + links.join(" ") : ""
-          }`;
-        } else if (afterQuotedArticleTitle) {
-          const apaUnitalicized = parseApaJournalParts(withoutLinks);
-          if (apaUnitalicized) {
-            return formatReferenceSource(val);
-          }
-        }
-      } else if (afterQuotedArticleTitle) {
-        const apaUnitalicized = parseApaJournalParts(withoutLinks);
-        if (apaUnitalicized) {
-          return formatReferenceSource(val);
+        if ((looksLikeJournalTail || afterArticleTitle) && !isEditionOrBookVol && !isLikelyPublisherOrThesis(jName)) {
+          val = `<span class="journal"><em>${htmlText(jName)}</em></span>${origSep}${htmlText(volAndTail)}`;
         }
       }
     }
   }
 
   const VOL_TOKEN = `(?:<span class="volume">)?(<em>)?(\\d+[A-Za-z]?)(?:<\\/em>)?(?:<\\/span>)?`;
+  const J_SEP = `(\\s*,\\s*|\\s+)`;
   const renderVol = (emTag: string | undefined, vol: string) =>
     `<span class="volume">${emTag ? `<em>${vol}</em>` : vol}</span>`;
+  const keepSep = (rawSep: string) => (rawSep.includes(",") ? ", " : " ");
 
-  // 1. Chicago full: *Journal*[,] [vol.] 45, no. 2 (Spring 2020)[: 112–128]
-  val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*(vol\\.\\s*)?${VOL_TOKEN}\\s*,\\s*no\\.\\s*([0-9A-Za-z–/-]+|\\([^)]+\\))\\s*(\\([^)]*\\))(?:\\s*:\\s*([^.<]+))?\\.?`,
-      "i"
-    ),
-    (_m, j, volPrefix, emTag, vol, iss, date, pgs) => {
-      const cleanIss = iss.replace(/^\(|\)$/g, "").trim();
-      const vPrefix = volPrefix ? "vol. " : "";
-      const base = `${j}, ${vPrefix}${renderVol(emTag, vol)}, no. <span class="issue">${cleanIss}</span> ${spanYearsInText(date)}`;
-      return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
+  // Apply at most ONE periodical pattern so already-wrapped spans (like (<span class="year">2004</span>))
+  // are never re-parsed by a later pattern.
+  const periodicalPatterns: Array<{
+    re: RegExp;
+    replace: (...args: any[]) => string;
+  }> = [
+    // 1. Chicago full: *Journal*[,] [vol.] 45, no. 2 (Spring 2020)[: 112–128]
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}(vol\\.\\s*)?${VOL_TOKEN}\\s*,\\s*no\\.\\s*([0-9A-Za-z–/-]+|\\([^)]+\\))\\s*(\\([^)]*\\))(?:\\s*:\\s*([^.<]+))?\\.?`,
+        "i"
+      ),
+      replace: (_m, j, sep, volPrefix, emTag, vol, iss, date, pgs) => {
+        const cleanIss = iss.replace(/^\(|\)$/g, "").trim();
+        const vPrefix = volPrefix ? "vol. " : "";
+        const base = `${j}${keepSep(sep)}${vPrefix}${renderVol(emTag, vol)}, no. <span class="issue">${cleanIss}</span> ${spanYearsInText(date)}`;
+        return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
+      },
+    },
+    // 2. MLA style: *Journal*, vol. 45, no. 2, 2020, pp. 112–128
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}vol\\.\\s*${VOL_TOKEN}\\s*,\\s*no\\.\\s*([0-9A-Za-z–/-]+)\\s*,\\s*([^,:<]+?)\\s*,\\s*(pp?\\.)\\s*([^.<]+)\\.?`,
+        "i"
+      ),
+      replace: (_m, j, sep, emTag, vol, iss, date, ppLabel, pgs) =>
+        `${j}${keepSep(sep)}vol. ${renderVol(emTag, vol)}, no. <span class="issue">${iss}</span>, ${spanYearsInText(date.trim())}, ${ppLabel} <span class="pages">${pgs.trim()}</span>.`,
+    },
+    // 3. Volume + no. issue [+ pages] WITHOUT parenthesized year: *Journal* 45, no. 2: 112–128  or  *Journal* 63, no. 1.
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}(vol\\.\\s*)?${VOL_TOKEN}\\s*,\\s*no\\.\\s*([0-9A-Za-z–/-]+)(?:\\s*(:|,)\\s*(pp?\\.\\s*)?([^.<]+))?\\.?`,
+        "i"
+      ),
+      replace: (_m, j, sep, volPrefix, emTag, vol, iss, pageSep, ppLabel, pgs) => {
+        const vPrefix = volPrefix ? "vol. " : "";
+        const base = `${j}${keepSep(sep)}${vPrefix}${renderVol(emTag, vol)}, no. <span class="issue">${iss.trim()}</span>`;
+        if (pgs) {
+          const pp = ppLabel ? `${ppLabel.trim()} ` : "";
+          return `${base}${pageSep} ${pp}<span class="pages">${pgs.trim()}</span>.`;
+        }
+        return `${base}.`;
+      },
+    },
+    // 4. *Journal* 45 [ ](2) (2020)[: 112–128] (both parenthesized issue AND parenthesized year)
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}${VOL_TOKEN}(\\s*)(\\((?!1[5-9]\\d{2}|20\\d{2})[^)]+\\))\\s*(\\([^)]*\\))(?:\\s*:\\s*([^.<]+))?\\.?`,
+        "i"
+      ),
+      replace: (_m, j, sep, emTag, vol, issSpace, iss, date, pgs) => {
+        const pSpace = issSpace ? " " : "";
+        const base = `${j}${keepSep(sep)}${renderVol(emTag, vol)}${pSpace}<span class="issue">${iss}</span> ${spanYearsInText(date)}`;
+        return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
+      },
+    },
+    // 5. *Journal* 45 (2020): 112–128  vs  *Journal* 45 (2): 112–128  vs  *Journal* 45(2): 112–128
+    //    Also handles online journals without pages: *Journal* 63 (2023).  or  *Journal* 63 (1).
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}${VOL_TOKEN}(\\s*)(\\([^)]+\\))(?:\\s*:\\s*([^.<]+)\\.?|\\.(?=\\s*(?:Accessed\\b|$)))`,
+        "i"
+      ),
+      replace: (_m, j, sep, emTag, vol, parenSpace, parenGroup, pgs) => {
+        const pSpace = parenSpace ? " " : "";
+        if (BIB_YEAR_RE.test(parenGroup)) {
+          const base = `${j}${keepSep(sep)}${renderVol(emTag, vol)} ${spanYearsInText(parenGroup)}`;
+          return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
+        }
+        const base = `${j}${keepSep(sep)}${renderVol(emTag, vol)}${pSpace}<span class="issue">${parenGroup}</span>`;
+        return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
+      },
+    },
+    // 6. *Journal* 18: 23–51 (volume + colon + pages without issue or year)
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}${VOL_TOKEN}\\s*:\\s*([^.<]+)\\.?`,
+        "i"
+      ),
+      replace: (_m, j, sep, emTag, vol, pgs) =>
+        `${j}${keepSep(sep)}${renderVol(emTag, vol)}: <span class="pages">${pgs.trim()}</span>.`,
+    },
+    // 7. Comma style in bibliography: *Journal*, 45(2), 112–128  or  *Journal*, *45*(2), 112–128
+    {
+      re: new RegExp(
+        `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)${J_SEP}${VOL_TOKEN}(\\s*)(\\((?!1[5-9]\\d{2}|20\\d{2})[^)]+\\))?(?:\\s*,\\s*(pp?\\.\\s*)?(\\d+\\s*[-–]\\s*\\d+|e\\d+|article\\s+\\w+))?\\.?`,
+        "i"
+      ),
+      replace: (full, j, sep, emTag, vol, issSpace, iss, ppLabel, pgs) => {
+        if (!iss && !pgs) return full;
+        const pSpace = issSpace ? " " : "";
+        let out = `${j}${keepSep(sep)}${renderVol(emTag, vol)}`;
+        if (iss) out += `${pSpace}<span class="issue">${iss}</span>`;
+        if (pgs) {
+          const pp = ppLabel ? `${ppLabel.trim()} ` : "";
+          out += `, ${pp}<span class="pages">${pgs.trim()}</span>`;
+        }
+        return `${out}.`;
+      },
+    },
+    // 8. Issue-only journal without volume: *Journal*, no. 65 (Spring 1998): 11–42
+    {
+      re: /(<span class="journal"><em>[\s\S]*?<\/em><\/span>)(\s*,\s*|\s+)no\.\s*([0-9A-Za-z–/-]+)\s*(\([^)]*\))(?:\s*:\s*([^.<]+))?\.?/i,
+      replace: (_m, j, sep, iss, date, pgs) => {
+        const base = `${j}${keepSep(sep)}no. <span class="issue">${iss}</span> ${spanYearsInText(date)}`;
+        return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
+      },
+    },
+    // 9. Journal with page range only: *Journal*, 112–128
+    {
+      re: /(<span class="journal"><em>[\s\S]*?<\/em><\/span>)(\s*,\s*|\s+)(\d+\s*[-–]\s*\d+)\.?/i,
+      replace: (_m, j, sep, pgs) => `${j}${keepSep(sep)}<span class="pages">${pgs.trim()}</span>.`,
+    },
+  ];
+
+  for (const pat of periodicalPatterns) {
+    const next = val.replace(pat.re, pat.replace);
+    if (next !== val) {
+      val = next;
+      break;
     }
-  );
+  }
 
-  // 2. Volume + no. issue + pages WITHOUT parenthesized year: *Journal*[,] 45, no. 2: 112–128
+  // Ensure at least a space if closing </span> of journal is glued directly to a following token
   val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*(vol\\.\\s*)?${VOL_TOKEN}\\s*,\\s*no\\.\\s*([0-9A-Za-z–/-]+)\\s*(:|,)\\s*(?:pp?\\.\\s*)?([^.<]+)\\.?`,
-      "i"
-    ),
-    (_m, j, volPrefix, emTag, vol, iss, sep, pgs) => {
-      const vPrefix = volPrefix ? "vol. " : "";
-      return `${j}, ${vPrefix}${renderVol(emTag, vol)}, no. <span class="issue">${iss.trim()}</span>${sep} <span class="pages">${pgs.trim()}</span>.`;
-    }
-  );
-
-  // 3. *Journal*[,] 45(2) (2020): 112–128 (both parenthesized issue AND parenthesized year)
-  val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*${VOL_TOKEN}\\s*(\\((?!1[5-9]\\d{2}|20\\d{2})[^)]+\\))\\s*(\\([^)]*\\))\\s*:\\s*([^.<]+)\\.?`,
-      "i"
-    ),
-    (_m, j, emTag, vol, iss, date, pgs) =>
-      `${j}, ${renderVol(emTag, vol)}<span class="issue">${iss}</span> ${spanYearsInText(date)}: <span class="pages">${pgs.trim()}</span>.`
-  );
-
-  // 4. *Journal*[,] 45 (2020): 112–128  vs  *Journal*[,] 2(1): 11–42
-  //    Always comma + space after journal; keep space before 4-digit (year), NEVER add space before parenthesized (issue)!
-  val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*${VOL_TOKEN}\\s*(\\([^)]+\\))\\s*:\\s*([^.<]+)\\.?`,
-      "i"
-    ),
-    (_m, j, emTag, vol, parenGroup, pgs) => {
-      if (BIB_YEAR_RE.test(parenGroup)) {
-        return `${j}, ${renderVol(emTag, vol)} ${spanYearsInText(parenGroup)}: <span class="pages">${pgs.trim()}</span>.`;
-      }
-      return `${j}, ${renderVol(emTag, vol)}<span class="issue">${parenGroup}</span>: <span class="pages">${pgs.trim()}</span>.`;
-    }
-  );
-
-  // 5. *Journal*[,] 18: 23–51 (volume + colon + pages without issue or year, e.g. Journal of Music Theory Pedagogy, 18: 23–51)
-  val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*${VOL_TOKEN}\\s*:\\s*([^.<]+)\\.?`,
-      "i"
-    ),
-    (_m, j, emTag, vol, pgs) =>
-      `${j}, ${renderVol(emTag, vol)}: <span class="pages">${pgs.trim()}</span>.`
-  );
-
-  // 6. MLA style: *Journal*[,] vol. 45, no. 2, 2020, pp. 112–128
-  val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*vol\\.\\s*${VOL_TOKEN}\\s*,\\s*no\\.\\s*([0-9A-Za-z–/-]+)\\s*,\\s*([^,:<]+?)\\s*,\\s*(pp?\\.)\\s*([^.<]+)\\.?`,
-      "i"
-    ),
-    (_m, j, emTag, vol, iss, date, ppLabel, pgs) =>
-      `${j}, vol. ${renderVol(emTag, vol)}, no. <span class="issue">${iss}</span>, ${spanYearsInText(date.trim())}, ${ppLabel} <span class="pages">${pgs.trim()}</span>.`
-  );
-
-  // 7. Comma style in bibliography: *Journal*[,] 45(2), 112–128  or  *Journal*[,] 45(2)
-  val = val.replace(
-    new RegExp(
-      `(<span class="journal"><em>[\\s\\S]*?<\\/em><\\/span>)\\s*,?\\s*${VOL_TOKEN}\\s*(\\((?!1[5-9]\\d{2}|20\\d{2})[^)]+\\))?(?:\\s*,\\s*(?:pp?\\.\\s*)?(\\d+\\s*[-–]\\s*\\d+|e\\d+))?\\.?`,
-      "i"
-    ),
-    (full, j, emTag, vol, iss, pgs) => {
-      if (!iss && !pgs) return full;
-      let out = `${j}, ${renderVol(emTag, vol)}`;
-      if (iss) out += `<span class="issue">${iss}</span>`;
-      if (pgs) out += `, <span class="pages">${pgs.trim()}</span>`;
-      return `${out}.`;
-    }
-  );
-
-  // 8. Issue-only journal without volume: *Journal*[,] no. 65 (Spring 1998): 11–42
-  val = val.replace(
-    /(<span class="journal"><em>[\s\S]*?<\/em><\/span>)\s*,?\s*no\.\s*([0-9A-Za-z–/-]+)\s*(\([^)]*\))(?:\s*:\s*([^.<]+))?\.?/i,
-    (_m, j, iss, date, pgs) => {
-      const base = `${j}, no. <span class="issue">${iss}</span> ${spanYearsInText(date)}`;
-      return pgs ? `${base}: <span class="pages">${pgs.trim()}</span>.` : `${base}.`;
-    }
-  );
-
-  // 9. Journal with page range only: *Journal*[,] 112–128
-  val = val.replace(
-    /(<span class="journal"><em>[\s\S]*?<\/em><\/span>)\s*,?\s*(\d+\s*[-–]\s*\d+)\.?/i,
-    (_m, j, pgs) => `${j}, <span class="pages">${pgs.trim()}</span>.`
-  );
-
-  // Safety net A: always ensure a comma + space after <span class="journal">...</span> before volume, issue, pages, vol., no., or digits
-  val = val.replace(
-    /(<span class="journal"><em>[\s\S]*?<\/em><\/span>)\s*(?=(?:<span class="(?:volume|issue|pages)">|vol\.\b|no\.\b|pp?\.\b|\d))/gi,
-    "$1, "
-  );
-
-  // Safety net B: remove any stray space between volume and non-year parenthesized issue right after journal
-  val = val.replace(
-    /(<span class="journal">[\s\S]*?<\/span>[,]?\s*(?:<span class="volume">)?(?:<em>)?\d+[A-Za-z]?(?:<\/em>)?(?:<\/span>)?)\s+(\((?!1[5-9]\d{2}|20\d{2})[^)]+\))/gi,
-    "$1$2"
+    /(<span class="journal"><em>[\s\S]*?<\/em><\/span>)(?=(?:<span\b|[A-Za-z0-9(]))/gi,
+    "$1 "
   );
 
   return val;
+}
+
+function renderQuotedTitlePart(
+  titleRaw: string,
+  openQuote: string,
+  closeQuote: string,
+  sourcePlainAfter: string,
+  authorEndedWithComma: boolean
+): string {
+  let title = normalizeHtmlSpacing(titleRaw);
+  let quoteSuffix = "";
+  if (title.endsWith(",")) {
+    title = title.slice(0, -1).trimEnd();
+    quoteSuffix = ",";
+  } else if (
+    !authorEndedWithComma &&
+    sourcePlainAfter &&
+    !/^[(\[,]/.test(sourcePlainAfter) &&
+    !/[.?!,;:]\s*$/.test(htmlToPlain(title))
+  ) {
+    title = `${title}.`;
+  }
+  return `${openQuote}<span class="title">${title}</span>${quoteSuffix}${closeQuote}`;
+}
+
+function formatBibliographySourceWithLinks(rawSourceHtml: string, afterArticleTitle: boolean, spanYears: boolean): string {
+  const [withoutLinks, links] = extractTrailingLinks(rawSourceHtml);
+  let rendered = "";
+  if (withoutLinks) {
+    let body = spanBibliographyJournalSource(withoutLinks, afterArticleTitle);
+    if (spanYears && !body.includes('<span class="year">')) {
+      body = spanYearsInText(body);
+    }
+    rendered = ensureTerminalPeriod(body);
+  }
+  if (links.length > 0) {
+    rendered = rendered ? `${rendered} ${links.join(" ")}` : links.join(" ");
+  }
+  return normalizeHtmlSpacing(rendered);
 }
 
 function formatBibliographyCitation(citationHtml: string): string {
@@ -1062,36 +1282,48 @@ function formatBibliographyCitation(citationHtml: string): string {
   const [titleHtml, sourceHtml, quoted, openQuote, closeQuote] = extractBibliographyTitle(remainder);
 
   const parts: string[] = [];
+  let authorEndedWithComma = false;
   if (authorHtml) {
     if (quoted && !authorHtml.trimEnd().endsWith(".")) {
       parts.push(`<span class="author">${authorHtml.trim()}</span>,`);
+      authorEndedWithComma = true;
     } else {
       parts.push(`<span class="author">${ensureTerminalPeriod(authorHtml)}</span>`);
     }
   }
 
-  let title = normalizeHtmlSpacing(titleHtml);
+  const title = normalizeHtmlSpacing(titleHtml);
+  const sourcePlainAfter = htmlToPlain(sourceHtml).trim();
   if (title) {
     if (quoted) {
-      let quoteSuffix = "";
-      if (title.endsWith(",")) {
-        title = title.slice(0, -1).trimEnd();
-        quoteSuffix = ",";
+      parts.push(renderQuotedTitlePart(title, openQuote, closeQuote, sourcePlainAfter, authorEndedWithComma));
+    } else if (!sourceHtml) {
+      // Single-segment entry (or entry with trailing link only)
+      const [titleMain, titleLinks] = extractTrailingLinks(title);
+      if (titleMain) {
+        const plainTitleMain = htmlToPlain(titleMain);
+        if (/[?!][”"’')\]]*$/.test(plainTitleMain)) {
+          parts.push(`<span class="title">${titleMain}</span>`);
+        } else {
+          parts.push(`<span class="title">${stripTerminalPeriod(titleMain)}</span>.`);
+        }
       }
-      parts.push(`${openQuote}<span class="title">${title}</span>${quoteSuffix}${closeQuote}`);
+      if (titleLinks.length > 0) {
+        parts.push(titleLinks.join(" "));
+      }
     } else {
-      const cleanedTitle = endsWithTerminalPunct(title) ? title : ensureTerminalPeriod(stripTerminalPeriod(title));
-      parts.push(`<span class="title">${cleanedTitle}</span>`);
+      const plainTitle = htmlToPlain(title);
+      if (/[?!][”"’')\]]*$/.test(plainTitle)) {
+        parts.push(`<span class="title">${title}</span>`);
+      } else {
+        parts.push(`<span class="title">${stripTerminalPeriod(title)}</span>.`);
+      }
     }
   }
 
-  let source = normalizeHtmlSpacing(sourceHtml);
+  const source = normalizeHtmlSpacing(sourceHtml);
   if (source) {
-    source = spanBibliographyJournalSource(source, quoted);
-    if (!source.includes('<span class="year">')) {
-      source = spanYearsInText(source);
-    }
-    parts.push(source);
+    parts.push(formatBibliographySourceWithLinks(source, quoted, true));
   }
 
   let rendered = normalizeHtmlSpacing(parts.join(" "));
@@ -1110,15 +1342,16 @@ function formatChicagoAuthorDateCitation(authorRaw: string, yearRaw: string, rem
   if (/^[“"']/.test(htmlToPlain(rem))) {
     const [titleHtml, sourceHtml, quoted, openQuote, closeQuote] = extractBibliographyTitle(rem);
     const parts = [`<span class="author">${author}</span>`, year];
+    const sourcePlainAfter = htmlToPlain(sourceHtml).trim();
     if (titleHtml) {
       parts.push(
         quoted
-          ? `${openQuote}<span class="title">${normalizeHtmlSpacing(titleHtml)}</span>${closeQuote}`
-          : `<span class="title">${ensureTerminalPeriod(stripTerminalPeriod(normalizeHtmlSpacing(titleHtml)))}</span>`
+          ? renderQuotedTitlePart(titleHtml, openQuote, closeQuote, sourcePlainAfter, false)
+          : `<span class="title">${stripTerminalPeriod(normalizeHtmlSpacing(titleHtml))}</span>.`
       );
     }
     if (sourceHtml) {
-      parts.push(spanBibliographyJournalSource(normalizeHtmlSpacing(sourceHtml), quoted));
+      parts.push(formatBibliographySourceWithLinks(normalizeHtmlSpacing(sourceHtml), true, false));
     }
     let rendered = normalizeHtmlSpacing(parts.join(" "));
     rendered = rendered.replace(/(?<!\.)\.\.(?!\.)/g, ".");
@@ -1137,12 +1370,8 @@ function formatChicagoAuthorDateCitation(authorRaw: string, yearRaw: string, rem
     }
   }
   if (rawSource) {
-    // Handle Chicago colon-style journal source (e.g., *Journal* 64(2): 145–180) or APA comma-style
-    if (/:\s*\d/.test(htmlToPlain(rawSource)) && !parseApaJournalParts(extractTrailingLinks(rawSource)[0])) {
-      parts.push(spanBibliographyJournalSource(normalizeHtmlSpacing(rawSource), true));
-    } else {
-      parts.push(formatReferenceSource(rawSource));
-    }
+    // Preserve Chicago Author-Date periodical/publisher formatting without converting into APA!
+    parts.push(formatBibliographySourceWithLinks(normalizeHtmlSpacing(rawSource), true, false));
   }
   let rendered = normalizeHtmlSpacing(parts.join(" "));
   rendered = rendered.replace(/(?<!\.)\.\.(?!\.)/g, ".");
@@ -1150,15 +1379,112 @@ function formatChicagoAuthorDateCitation(authorRaw: string, yearRaw: string, rem
   return rendered;
 }
 
-export function formatReferenceCitation(citationHtml: string): string {
+export function classifyCitationStyle(citationHtml: string): ReferenceStyle | null {
+  const stripped = citationHtml.trim().replace(/^(?:\[\d+\]|\d+\.)\s+/, "");
+  if (!stripped) return null;
+  const norm = normalizeCitationLinks(stripped);
+
+  const split = splitReferenceYear(norm);
+  if (split && isAuthorParenYearSplit(split)) {
+    const rem = cleanInline(split[2]);
+    const remPlain = htmlToPlain(rem);
+    if (/^[“"']/.test(remPlain)) {
+      return "chicago-ad";
+    }
+    const [, rawSource] = splitApaTitleAndSource(rem);
+    const [sourceNoLinks] = extractTrailingLinks(rawSource);
+    if (sourceNoLinks && hasChicagoPeriodicalSyntax(sourceNoLinks)) {
+      return "chicago-ad";
+    }
+    return "apa";
+  }
+
+  const cadMatch = norm.match(CHICAGO_AUTHOR_DATE_RE);
+  if (cadMatch && isValidChicagoAuthorDateMatch(cadMatch)) {
+    return "chicago-ad";
+  }
+
+  const plain = htmlToPlain(norm);
+  if (
+    /[“"][^”"]{3,}[”"]/.test(plain) ||
+    /\bno\.\s*[0-9A-Za-z]/i.test(plain) ||
+    /\(\s*(?:[A-Za-z]+\s+)?(?:1[5-9]\d{2}|20\d{2})\s*\)\s*:\s*\d/.test(plain) ||
+    /,\s*(?:1[5-9]\d{2}|20\d{2})\.?(?:\s+https?:\/\/|\s+10\.\d{4,9}\/|\s*$)/i.test(plain) ||
+    /^(?:[\u2e3a\u2e3b]|[\u2014\u2013_]{2,}|-{3,})[.,\s]/.test(plain)
+  ) {
+    return "chicago-nb";
+  }
+
+  return null;
+}
+
+export function detectReferenceListStyle(citations: string[]): {
+  dominantStyle: ReferenceStyle;
+  summary: DetectedStyleSummary;
+  counts: { apa: number; chicagoNb: number; chicagoAd: number };
+} {
+  let apa = 0;
+  let chicagoNb = 0;
+  let chicagoAd = 0;
+
+  for (const c of citations) {
+    const detected = classifyCitationStyle(c);
+    if (detected === "apa") apa++;
+    else if (detected === "chicago-ad") chicagoAd++;
+    else if (detected === "chicago-nb") chicagoNb++;
+  }
+
+  const totalStrong = apa + chicagoNb + chicagoAd;
+  const chicagoTotal = chicagoNb + chicagoAd;
+
+  let dominantStyle: ReferenceStyle = "chicago-nb";
+  if (apa > chicagoTotal) {
+    dominantStyle = "apa";
+  } else if (chicagoAd > chicagoNb) {
+    dominantStyle = "chicago-ad";
+  } else if (chicagoNb > 0) {
+    dominantStyle = "chicago-nb";
+  } else if (apa > 0) {
+    dominantStyle = "apa";
+  }
+
+  let summary: DetectedStyleSummary = dominantStyle;
+  if (totalStrong >= 2 && apa > 0 && chicagoTotal > 0) {
+    const apaShare = apa / totalStrong;
+    if (apaShare > 0.15 && apaShare < 0.85) {
+      summary = "mixed";
+    }
+  }
+
+  return {
+    dominantStyle,
+    summary,
+    counts: { apa, chicagoNb, chicagoAd },
+  };
+}
+
+export function formatReferenceStyleLabel(summary: DetectedStyleSummary): string {
+  switch (summary) {
+    case "apa":
+      return "APA";
+    case "chicago-ad":
+      return "Chicago Author-Date";
+    case "chicago-nb":
+      return "Chicago";
+    case "mixed":
+      return "APA / Chicago";
+  }
+}
+
+export function formatReferenceCitation(citationHtml: string, styleHint?: ReferenceStyle): string {
   const strippedLeadingNumber = citationHtml.trim().replace(/^(?:\[\d+\]|\d+\.)\s+/, "");
   const norm = normalizeCitationLinks(strippedLeadingNumber);
   const split = splitReferenceYear(norm);
 
-  if (!split || !isApaYearSplit(split)) {
+  if (!split || !isAuthorParenYearSplit(split, styleHint)) {
     // Check Chicago Author-Date ("Smith, Jane. 2020. ...")
     const cadMatch = norm.match(CHICAGO_AUTHOR_DATE_RE);
-    if (cadMatch && !/[“"‘]|<em>|<\/em>/i.test(cadMatch[1])) {
+    if (cadMatch && isValidChicagoAuthorDateMatch(cadMatch)) {
       return formatChicagoAuthorDateCitation(cadMatch[1], cadMatch[2], cadMatch[3]);
     }
     return formatBibliographyCitation(norm);
@@ -1166,6 +1492,36 @@ export function formatReferenceCitation(citationHtml: string): string {
 
   const [authorHtml, year, remainder] = split;
   const cleanedRem = cleanInline(remainder);
+
+  // If the author used `(Year)` with a Chicago quoted title (“Title.” *Journal* 45, no. 2: 112–128), preserve it!
+  if (/^[“"']/.test(htmlToPlain(cleanedRem))) {
+    const [titleHtml, sourceHtml, quoted, openQuote, closeQuote] = extractBibliographyTitle(cleanedRem);
+    const parts = [
+      `<span class="author">${normalizeHtmlSpacing(authorHtml)}</span>`,
+      `<span class="year">${htmlText(year)}</span>.`,
+    ];
+    const sourcePlainAfter = htmlToPlain(sourceHtml).trim();
+    if (titleHtml) {
+      parts.push(
+        quoted
+          ? renderQuotedTitlePart(titleHtml, openQuote, closeQuote, sourcePlainAfter, false)
+          : `<span class="title">${stripTerminalPeriod(normalizeHtmlSpacing(titleHtml))}</span>.`
+      );
+    }
+    if (sourceHtml) {
+      const [srcNoLinks] = extractTrailingLinks(sourceHtml);
+      if (hasChicagoPeriodicalSyntax(srcNoLinks)) {
+        parts.push(formatBibliographySourceWithLinks(normalizeHtmlSpacing(sourceHtml), true, false));
+      } else {
+        parts.push(formatReferenceSource(normalizeHtmlSpacing(sourceHtml)));
+      }
+    }
+    let renderedQuoted = normalizeHtmlSpacing(parts.join(" "));
+    renderedQuoted = renderedQuoted.replace(/(?<!\.)\.\.(?!\.)/g, ".");
+    renderedQuoted = renderedQuoted.replace(/(<span class="doi">[\s\S]*?<\/span>)\.\s*$/i, "$1");
+    return renderedQuoted;
+  }
+
   const [rawTitleHtml, rawSourceHtml] = splitApaTitleAndSource(cleanedRem);
 
   const titleNorm = normalizeHtmlSpacing(rawTitleHtml);
@@ -1221,7 +1577,7 @@ function looksLikeClearNewReference(html: string, plain: string): boolean {
 
   // Numbered or 3-em-dash repeated-author entry
   if (/^(?:\[\d+\]|\d+\.\s+[A-Z“"'])/.test(t)) return true;
-  if (/^(?:[—–_]{2,}|-{3,})[.,\s]/.test(t)) return true;
+  if (/^(?:[\u2e3a\u2e3b]|[—–_]{2,}|-{3,})[.,\s]/.test(t)) return true;
 
   // APA author + parenthesized year near start
   if (/^[^“"<>]{2,300}?\((?:\d{4}[a-z]?(?:[–/-]\d{2,4})?(?:,\s*[A-Za-z0-9 .–/-]+)?|n\.d\.|in press|forthcoming|ca\.\s*\d{4})\)\.?\s+\S/i.test(t)) {
@@ -1398,6 +1754,7 @@ export interface ExtractedDocxReferences {
   formattedCitations: string[];
   count: number;
   foundHeading: boolean;
+  detectedStyle?: DetectedStyleSummary;
 }
 
 function appendParagraphToReferenceLines(
@@ -1929,7 +2286,8 @@ export async function extractReferencesFromDocx(
     return { html: "", citations: [], formattedCitations: [], count: 0, foundHeading };
   }
 
-  const formattedCitations = citations.map((c) => formatReferenceCitation(c));
+  const detected = detectReferenceListStyle(citations);
+  const formattedCitations = citations.map((c) => formatReferenceCitation(c, detected.dominantStyle));
   const outLines: string[] = [];
   if (includeHeading) {
     outLines.push('<h2 class="h4">References</h2>');
@@ -1946,6 +2304,7 @@ export async function extractReferencesFromDocx(
     formattedCitations,
     count: formattedCitations.length,
     foundHeading,
+    detectedStyle: detected.summary,
   };
 }
 
@@ -2126,11 +2485,12 @@ export async function convertDocxToArticleHtml(file: File | Blob, options: Conve
   // References
   if (includeReferences && rawReferenceLines.length > 0) {
     const citations = segmentReferenceEntries(rawReferenceLines);
+    const detected = detectReferenceListStyle(citations);
 
     lines.push('<h2 class="h4">References</h2>', '<ol class="references">');
     for (const citation of citations) {
       lines.push(
-        `<li class="hangingindent">${formatReferenceCitation(citation)}</li>`
+        `<li class="hangingindent">${formatReferenceCitation(citation, detected.dominantStyle)}</li>`
       );
     }
     lines.push("</ol>");

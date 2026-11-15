@@ -5,11 +5,14 @@
  */
 
 import {
+  detectReferenceListStyle,
   formatReferenceCitation,
   isReferenceHeading,
   mergeAdjacentInlineTags,
   segmentReferenceEntries,
+  type DetectedStyleSummary,
   type RawReferenceLine,
+  type ReferenceStyle,
 } from './article-formatter';
 
 const DOI_REGEX = /(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)(10\.\d{4,9}\/(?:(?!https?:\/\/|doi:\s*10\.)[^\s<>"'])+)/i;
@@ -75,16 +78,17 @@ function sanitizeInlineReferenceHtml(raw: string): string {
   // Convert *italic* markdown syntax to <em>...</em>
   cleaned = cleaned.replace(/\*(?!\s)([^*\n]+?)(?<!\s)\*/g, '<em>$1</em>');
 
-  // Tokenize <em>...</em> and URL tokens while escaping stray tags/entities
+  // Tokenize <em>...</em>, <sup>...</sup>, <sub>...</sub>, and URL tokens while escaping stray tags/entities
   const tokens: string[] = [];
-  cleaned = cleaned.replace(/<em>[\s\S]*?<\/em>|\u0000URL\d+\u0000/gi, (m) => {
+  cleaned = cleaned.replace(/<(em|sup|sub)>([\s\S]*?)<\/\1>|\u0000URL\d+\u0000/gi, (m, tagName, innerContent) => {
     const id = `\u0000TOK${tokens.length}\u0000`;
     if (m.startsWith('\u0000URL')) {
       const urlIdx = Number(m.slice(4, -1));
       tokens.push(urlTokens[urlIdx] || '');
     } else {
-      const innerText = escapeHtml(decodeBasicEntities(m.slice(4, -5).replace(/<[^>]+>/g, '')));
-      tokens.push(innerText.trim() ? `<em>${innerText}</em>` : innerText);
+      const tag = String(tagName).toLowerCase();
+      const innerText = escapeHtml(decodeBasicEntities(String(innerContent).replace(/<[^>]+>/g, '')));
+      tokens.push(innerText.trim() ? `<${tag}>${innerText}</${tag}>` : innerText);
     }
     return id;
   });
@@ -539,19 +543,38 @@ export function extractDoiAndUrl(text: string): { cleaned: string; doi?: { href:
   return { cleaned, doi: { href, text: shortDoi } };
 }
 
-export function parseReference(reference: string): string {
+export function parseReference(reference: string, styleHint?: ReferenceStyle): string {
   const strippedNum = normalizeWhitespace(reference).replace(/^(?:\[\d+\]|\d+\.)\s*/, '');
-  return `<li class="hangingindent">${formatReferenceCitation(strippedNum)}</li>`;
+  return `<li class="hangingindent">${formatReferenceCitation(strippedNum, styleHint)}</li>`;
+}
+
+export function formatCitationHtmlArrayWithMeta(
+  citations: string[],
+  options: FormatReferencesOptions = {}
+): { html: string; count: number; detectedStyle?: DetectedStyleSummary } {
+  if (citations.length === 0) return { html: '', count: 0 };
+  const detected = detectReferenceListStyle(citations);
+  const items = citations.map((c) => parseReference(c, detected.dominantStyle)).join('\n');
+  const headingPrefix = options.includeHeading ? '<h2 class="h4">References</h2>\n' : '';
+  return {
+    html: `${headingPrefix}<ol class="references">\n${items}\n</ol>`,
+    count: citations.length,
+    detectedStyle: detected.summary,
+  };
 }
 
 export function formatCitationHtmlArray(citations: string[], options: FormatReferencesOptions = {}): string {
-  if (citations.length === 0) return '';
-  const items = citations.map((c) => parseReference(c)).join('\n');
-  const headingPrefix = options.includeHeading ? '<h2 class="h4">References</h2>\n' : '';
-  return `${headingPrefix}<ol class="references">\n${items}\n</ol>`;
+  return formatCitationHtmlArrayWithMeta(citations, options).html;
+}
+
+export function formatReferencesWithMeta(
+  input: string,
+  options: FormatReferencesOptions = {}
+): { html: string; count: number; detectedStyle?: DetectedStyleSummary } {
+  const references = splitReferences(input);
+  return formatCitationHtmlArrayWithMeta(references, options);
 }
 
 export function formatReferences(input: string, options: FormatReferencesOptions = {}): string {
-  const references = splitReferences(input);
-  return formatCitationHtmlArray(references, options);
+  return formatReferencesWithMeta(input, options).html;
 }

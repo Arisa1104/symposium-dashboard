@@ -15,11 +15,11 @@ All tools execute 100% client-side in the browser with no backend server require
    - Direct OOXML `.docx` manuscript converter to Joomla-ready HTML.
    - Parses headings (H2/H3), numbered lists, blockquotes, and pullquotes.
    - In-line footnote tooltips (`<span class="tooltip-cms">`) and linked endnote list.
-   - Automatic APA & Chicago/bibliography reference styling.
+   - Automatic citation style detection & preservation (APA, Chicago Notes & Bibliography, Chicago Author-Date).
 
 3. **Reference Formatter**
-   - Parses pasted references or bibliography lists.
-   - Extracts DOIs (with clean hyperlinking) and splits authors, publication years, titles, and journal volume/issue/page citations into hanging-indent items.
+   - Parses `.docx`, Word clipboard, or plain-text reference/bibliography lists while preserving the original citation style (APA or Chicago).
+   - Extracts DOIs (with clean hyperlinking) and wraps authors, publication years, titles, and journal volume/issue/page citations in semantic CMS markup with hanging-indent items.
 
 4. **Editorial Board Formatter**
    - Cleans raw text copied from the CMS website.

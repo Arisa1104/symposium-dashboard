@@ -11,13 +11,16 @@
 import { initTableFormatter } from './modules/table-formatter-adapter';
 import {
   convertDocxToArticleHtml,
+  detectReferenceListStyle,
   extractReferencesFromDocx,
   formatReferenceCitation,
+  formatReferenceStyleLabel,
+  type DetectedStyleSummary,
 } from './modules/article-formatter';
 import {
   citationHtmlToEditableText,
-  formatCitationHtmlArray,
-  formatReferences,
+  formatCitationHtmlArrayWithMeta,
+  formatReferencesWithMeta,
   parseWordClipboardHtmlToCitations,
 } from './modules/references';
 import { parseMembers, formatMembers } from './modules/editorial-board';
@@ -273,20 +276,24 @@ function initReferenceFormatterController() {
     statusBadge.classList.toggle("success", isSuccess);
   };
 
-  const renderOutput = (html: string, count?: number, sourceLabel?: string) => {
+  const renderOutput = (
+    html: string,
+    count?: number,
+    sourceLabel?: string,
+    detectedStyle?: DetectedStyleSummary
+  ) => {
     formattedHtml = html;
     previewContainer.innerHTML = html || emptyPreviewPlaceholder;
     codeContainer.value = html;
     if (html && typeof count === "number") {
-      const label = `${count} citation${count === 1 ? "" : "s"}${sourceLabel ? ` (${sourceLabel})` : ""}`;
+      const styleTag = detectedStyle ? formatReferenceStyleLabel(detectedStyle) : "";
+      const detailParts = [styleTag, sourceLabel].filter(Boolean);
+      const suffix = detailParts.length > 0 ? ` · ${detailParts.join(" · ")}` : "";
+      const label = `${count} citation${count === 1 ? "" : "s"}${suffix}`;
       setBadge(label, true);
     } else if (!html) {
       setBadge("Ready", false);
     }
-  };
-
-  const countListItems = (html: string): number => {
-    return (html.match(/<li\b/gi) || []).length;
   };
 
   const formatFromTextarea = (notify: boolean = true, sourceLabel?: string) => {
@@ -295,11 +302,11 @@ function initReferenceFormatterController() {
       if (notify) showToast("Please upload a .docx file or paste references to format", true);
       return;
     }
-    const html = formatReferences(raw, { includeHeading: Boolean(optHeading?.checked) });
-    const count = countListItems(html);
-    renderOutput(html, count, sourceLabel);
+    const result = formatReferencesWithMeta(raw, { includeHeading: Boolean(optHeading?.checked) });
+    renderOutput(result.html, result.count, sourceLabel, result.detectedStyle);
     if (notify) {
-      showToast(`Formatted ${count} reference${count === 1 ? "" : "s"}!`);
+      const styleInfo = result.detectedStyle ? ` (${formatReferenceStyleLabel(result.detectedStyle)})` : "";
+      showToast(`Formatted ${result.count} reference${result.count === 1 ? "" : "s"}${styleInfo}!`);
     }
   };
 
@@ -329,9 +336,10 @@ function initReferenceFormatterController() {
         .join("\n\n");
 
       const sectionNote = extracted.foundHeading ? "References section" : "Word doc";
-      renderOutput(extracted.html, extracted.count, sectionNote);
+      renderOutput(extracted.html, extracted.count, sectionNote, extracted.detectedStyle);
+      const styleInfo = extracted.detectedStyle ? ` (${formatReferenceStyleLabel(extracted.detectedStyle)})` : "";
       showToast(
-        `Extracted & formatted ${extracted.count} reference${extracted.count === 1 ? "" : "s"} from ${file.name}!`
+        `Extracted & formatted ${extracted.count} reference${extracted.count === 1 ? "" : "s"}${styleInfo} from ${file.name}!`
       );
     } catch (err: any) {
       console.error(err);
@@ -416,7 +424,8 @@ function initReferenceFormatterController() {
       const citations = parseWordClipboardHtmlToCitations(htmlData);
       if (citations.length > 0) {
         e.preventDefault();
-        const formattedCitations = citations.map((c) => formatReferenceCitation(c));
+        const detected = detectReferenceListStyle(citations);
+        const formattedCitations = citations.map((c) => formatReferenceCitation(c, detected.dominantStyle));
         const editableItems = formattedCitations.map((c) => citationHtmlToEditableText(c));
 
         if (isEditingInsidePopulatedTextarea) {
@@ -441,12 +450,13 @@ function initReferenceFormatterController() {
         currentFileName = "";
         if (fileNameDisplay) fileNameDisplay.textContent = "Drag & drop article or references .docx";
         refInput.value = editableItems.join("\n\n");
-        const html = formatCitationHtmlArray(citations, {
+        const result = formatCitationHtmlArrayWithMeta(citations, {
           includeHeading: Boolean(optHeading?.checked),
         });
-        renderOutput(html, citations.length, "Word paste");
+        renderOutput(result.html, result.count, "Word paste", result.detectedStyle);
+        const styleInfo = result.detectedStyle ? ` (${formatReferenceStyleLabel(result.detectedStyle)})` : "";
         showToast(
-          `Pasted & formatted ${citations.length} reference${citations.length === 1 ? "" : "s"} with italics preserved!`
+          `Pasted & formatted ${citations.length} reference${citations.length === 1 ? "" : "s"}${styleInfo} with original style preserved!`
         );
         return;
       }
@@ -487,13 +497,13 @@ function initReferenceFormatterController() {
   btnLoadSample?.addEventListener("click", () => {
     currentFileName = "";
     if (fileNameDisplay) fileNameDisplay.textContent = "Drag & drop article or references .docx";
-    refInput.value = `1. Adams, J. (2020). Performance practice in contemporary brass literature. *Journal of Music Research*, 45(2), 112–128. https://doi.org/10.1080/01411896.2020.1234567
+    refInput.value = `1. Adams, J. (2020). Performance practice in contemporary brass literature. *Journal of Music Research*, *45*(2), 112–128. https://doi.org/10.1080/01411896.2020.1234567
 
-2. Davis, M. K. (2021). Modal improvisation in early modern jazz pedagogy. Jazz Education Network Journal, 14(3), 30–48. doi: 10.1111/jenj.12004
+2. Caplin, William E. “What Are Formal Functions?” *Journal of Musicology* 38, no. 2 (Spring 2021): 145–180. https://doi.org/10.1525/jm.2021.38.2.145
 
 3. Caplin, William E. *Classical Form: A Theory of Formal Functions for the Instrumental Music of Haydn, Mozart, and Beethoven*. New York: Oxford University Press, 1998.`;
     formatFromTextarea(false, "Sample");
-    showToast("Sample references loaded & formatted!");
+    showToast("Sample APA & Chicago references loaded & formatted!");
   });
 
   btnClear?.addEventListener("click", () => {
